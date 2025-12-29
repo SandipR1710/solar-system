@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realistic 3D Solar System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <canvas id="solarSystem"></canvas>
+
+        <!-- Loading -->
+        <div id="loading">
+            <div class="spinner"></div>
+            <p>Loading Solar System...</p>
+        </div>
+
+        <!-- Planet Info Panel -->
+        <div id="info-panel" class="panel hidden">
+            <button id="close-panel">&times;</button>
+            <div id="planet-header">
+                <div id="planet-icon"></div>
+                <h1 id="planet-name">Sun</h1>
+            </div>
+            <div id="planet-stats">
+                <div class="stat">
+                    <span class="stat-label">Orbital Period</span>
+                    <span class="stat-value" id="stat-period">—</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Distance from Sun</span>
+                    <span class="stat-value" id="stat-distance">—</span>
+                </div>
+            </div>
+            <div class="info-section">
+                <h3>Atmosphere</h3>
+                <p id="info-atmosphere"></p>
+            </div>
+            <div class="info-section">
+                <h3>Environment</h3>
+                <p id="info-environment"></p>
+            </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div id="controls-panel" class="panel">
+            <h3>CONTROLS</h3>
+            <div class="control-group">
+                <label>Simulation Speed</label>
+                <div class="slider-row">
+                    <input type="range" id="speed-slider" min="0" max="1000" step="1" value="100">
+                    <span id="speed-value">100%</span>
+                </div>
+            </div>
+            <div class="control-group checkbox-group">
+                <label>
+                    <input type="checkbox" id="show-orbits" checked>
+                    Show Orbits
+                </label>
+            </div>
+            <div class="control-group checkbox-group">
+                <label>
+                    <input type="checkbox" id="show-labels" checked>
+                    Show Labels
+                </label>
+            </div>
+        </div>
+
+        <!-- Planet Selector -->
+        <div id="planet-selector">
+            <button class="planet-btn" data-planet="Sun" title="Sun">
+                <span class="planet-dot sun"></span>
+            </button>
+            <button class="planet-btn" data-planet="Mercury" title="Mercury">
+                <span class="planet-dot mercury"></span>
+            </button>
+            <button class="planet-btn" data-planet="Venus" title="Venus">
+                <span class="planet-dot venus"></span>
+            </button>
+            <button class="planet-btn" data-planet="Earth" title="Earth">
+                <span class="planet-dot earth"></span>
+            </button>
+            <button class="planet-btn" data-planet="Mars" title="Mars">
+                <span class="planet-dot mars"></span>
+            </button>
+            <button class="planet-btn dwarf" data-planet="Ceres" title="Ceres (Asteroid Belt)">
+                <span class="planet-dot ceres"></span>
+            </button>
+            <button class="planet-btn" data-planet="Jupiter" title="Jupiter">
+                <span class="planet-dot jupiter"></span>
+            </button>
+            <button class="planet-btn" data-planet="Saturn" title="Saturn">
+                <span class="planet-dot saturn"></span>
+            </button>
+            <button class="planet-btn" data-planet="Uranus" title="Uranus">
+                <span class="planet-dot uranus"></span>
+            </button>
+            <button class="planet-btn" data-planet="Neptune" title="Neptune">
+                <span class="planet-dot neptune"></span>
+            </button>
+            <span class="selector-divider"></span>
+            <button class="planet-btn dwarf" data-planet="Pluto" title="Pluto (Kuiper Belt)">
+                <span class="planet-dot pluto"></span>
+            </button>
+            <button class="planet-btn dwarf" data-planet="Haumea" title="Haumea">
+                <span class="planet-dot haumea"></span>
+            </button>
+            <button class="planet-btn dwarf" data-planet="Makemake" title="Makemake">
+                <span class="planet-dot makemake"></span>
+            </button>
+            <button class="planet-btn dwarf" data-planet="Eris" title="Eris (Scattered Disk)">
+                <span class="planet-dot eris"></span>
+            </button>
+        </div>
+
+        <!-- View Angle Buttons -->
+        <div id="view-buttons">
+            <button class="view-btn" data-view="top" title="Top View">Top</button>
+            <button class="view-btn" data-view="side" title="Side View">Side</button>
+            <button class="view-btn active" data-view="angle" title="Angled 3D View">Angle</button>
+        </div>
+
+        <!-- Instructions -->
+        <div id="instructions">
+            <span>Drag: Rotate</span>
+            <span>Scroll: Zoom</span>
+            <span>Click: Select</span>
+        </div>
+
+        <!-- Exit Focus Button -->
+        <button id="exit-focus" class="hidden">Return to Overview</button>
+    </div>
+
+    <!-- Load Three.js from CDN (global script, no modules) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="code.js"></script>
+</body>
+</html>
