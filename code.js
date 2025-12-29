@@ -4,6 +4,15 @@
  */
 
 // ============================================
+// PRE-CALCULATED CONSTANTS (Performance)
+// ============================================
+const PI = Math.PI;
+const TWO_PI = PI * 2;
+const HALF_PI = PI / 2;
+const DEG_TO_RAD = PI / 180;
+const RAD_TO_DEG = 180 / PI;
+
+// ============================================
 // NOISE FUNCTIONS FOR REALISTIC TEXTURES
 // ============================================
 
@@ -1586,47 +1595,49 @@ class OrbitalMechanics {
      * @returns {THREE.Vector3} Position in 3D space
      */
     static calculatePosition(meanAnomaly, semiMajorAxis, eccentricity, inclination, argPerihelion) {
-        // Apply distance compression for better visualization (keeps angles the same)
-        // Add orbit offset to ensure all planets stay outside Sun's visual radius
+        // Apply distance compression for better visualization
         const compressedAxis = semiMajorAxis * DISTANCE_COMPRESSION + ORBIT_OFFSET;
-        
+
         // Solve Kepler's equation for eccentric anomaly
         const E = this.solveKeplerEquation(meanAnomaly, eccentricity);
-        
+
         // Convert to true anomaly
         const nu = this.eccentricToTrueAnomaly(E, eccentricity);
-        
-        // Calculate distance from focus (Sun) using compressed axis
-        const distance = compressedAxis * (1 - eccentricity * eccentricity) / (1 + eccentricity * Math.cos(nu));
-        
-        // Convert angles to radians
-        const inc = (inclination * Math.PI) / 180;
-        const omega = (argPerihelion * Math.PI) / 180;
-        
+
+        // Calculate distance from focus (Sun)
+        const ecc2 = eccentricity * eccentricity;
+        const distance = compressedAxis * (1 - ecc2) / (1 + eccentricity * Math.cos(nu));
+
+        // Convert angles to radians using cached constant
+        const inc = inclination * DEG_TO_RAD;
+        const omega = argPerihelion * DEG_TO_RAD;
+
+        // Pre-calculate trig values
+        const cosNu = Math.cos(nu);
+        const sinNu = Math.sin(nu);
+        const cosOmega = Math.cos(omega);
+        const sinOmega = Math.sin(omega);
+        const sinInc = Math.sin(inc);
+        const cosInc = Math.cos(inc);
+
         // Calculate position in orbital plane
-        const xOrbital = distance * Math.cos(nu);
-        const yOrbital = distance * Math.sin(nu);
-        
+        const xOrbital = distance * cosNu;
+        const yOrbital = distance * sinNu;
+
         // Rotate to account for argument of perihelion
-        const xRot = xOrbital * Math.cos(omega) - yOrbital * Math.sin(omega);
-        const yRot = xOrbital * Math.sin(omega) + yOrbital * Math.cos(omega);
-        
+        const xRot = xOrbital * cosOmega - yOrbital * sinOmega;
+        const yRot = xOrbital * sinOmega + yOrbital * cosOmega;
+
         // Apply inclination (rotate around X axis)
-        const x = xRot;
-        const y = yRot * Math.sin(inc);
-        const z = yRot * Math.cos(inc);
-        
-        return new THREE.Vector3(x, y, z);
+        return new THREE.Vector3(xRot, yRot * sinInc, yRot * cosInc);
     }
 
     /**
      * Calculate mean motion (angular speed) from period
-     * Accounts for Kepler's second law (variable speed)
      */
     static calculateMeanMotion(period, speedMultiplier = 1) {
         // Period is in Earth days, convert to animation time units
-        const animationPeriod = period * 0.1;
-        return (2 * Math.PI) / animationPeriod * speedMultiplier;
+        return TWO_PI / (period * 0.1) * speedMultiplier;
     }
 }
 
@@ -1659,6 +1670,11 @@ class SolarSystem {
         this.allMoons = []; // All moon meshes for raycasting
         this.hoveredMoon = null;
         this.state = STATE.IDLE;
+
+        // Reusable objects to reduce GC (Performance)
+        this._tempVec3 = new THREE.Vector3();
+        this._tempQuat = new THREE.Quaternion();
+        this._rotAxis = new THREE.Vector3();
         this.target = null;
         this.chaseStart = 0;
         this.startCamPos = new THREE.Vector3();
@@ -2184,34 +2200,37 @@ class SolarSystem {
     }
 
     createOrbits() {
-        for (const p of PLANETS) {
+        const orbitMaterial = new THREE.LineBasicMaterial({
+            color: 0x4466aa,
+            transparent: true,
+            opacity: 0.3
+        });
+
+        for (let i = 0, len = PLANETS.length; i < len; i++) {
+            const p = PLANETS[i];
             if (p.orbitRadius === 0) continue;
 
             const points = [];
             const eccentricity = p.eccentricity || 0;
             const inclination = p.inclination || 0;
             const argPerihelion = p.argPerihelion || 0;
-            
+            const segments = 256;
+            const angleStep = TWO_PI / segments;
+
             // Generate points along elliptical orbit
-            for (let i = 0; i <= 256; i++) {
-                const meanAnomaly = (i / 256) * Math.PI * 2;
-                const pos = OrbitalMechanics.calculatePosition(
+            for (let j = 0; j <= segments; j++) {
+                const meanAnomaly = j * angleStep;
+                points.push(OrbitalMechanics.calculatePosition(
                     meanAnomaly,
                     p.orbitRadius,
                     eccentricity,
                     inclination,
                     argPerihelion
-                );
-                points.push(pos);
+                ));
             }
 
             const geo = new THREE.BufferGeometry().setFromPoints(points);
-            const mat = new THREE.LineBasicMaterial({
-                color: 0x4466aa,
-                transparent: true,
-                opacity: 0.3
-            });
-            const line = new THREE.Line(geo, mat);
+            const line = new THREE.Line(geo, orbitMaterial.clone());
             this.scene.add(line);
             this.orbitLines.push(line);
         }
@@ -2337,26 +2356,24 @@ class SolarSystem {
 
         const delta = this.clock.getDelta();
         const elapsed = this.clock.getElapsedTime();
-
-        // Base rotation speed (Earth completes one rotation per "rotationPeriod" hours)
-        // We scale this for visualization: 1 second real time = ~1 hour simulation time
-        const ROTATION_SCALE = 0.1; // Adjust for visual appeal
+        const speed = this.speed; // Cache for loop
 
         // Update planets with realistic orbital mechanics
-        for (const p of PLANETS) {
+        for (let i = 0, len = PLANETS.length; i < len; i++) {
+            const p = PLANETS[i];
             const mesh = this.bodies[p.name];
             const data = mesh.userData;
 
             // Update orbital position (skip for Sun)
             if (p.orbitRadius > 0) {
                 // Calculate mean motion (angular speed) - accounts for Kepler's laws
-                const meanMotion = OrbitalMechanics.calculateMeanMotion(data.period, this.speed);
+                const meanMotion = OrbitalMechanics.calculateMeanMotion(data.period, speed);
 
                 // Update mean anomaly (increases linearly, but speed varies due to eccentricity)
                 data.meanAnomaly += meanMotion * delta;
 
                 // Keep mean anomaly in [0, 2π] range
-                data.meanAnomaly = ((data.meanAnomaly % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2);
+                data.meanAnomaly = ((data.meanAnomaly % TWO_PI) + TWO_PI) % TWO_PI;
 
                 // Calculate new position using elliptical orbit mechanics
                 const pos = OrbitalMechanics.calculatePosition(
@@ -2370,19 +2387,15 @@ class SolarSystem {
             }
 
             // Rotate planet on its axis based on rotation period
-            // Rotation speed = 2π / rotationPeriod (radians per hour)
-            // Negative rotation period = retrograde rotation
             const rotationPeriod = data.rotationPeriod || 24;
-            const rotationSpeed = (2 * Math.PI / Math.abs(rotationPeriod)) * ROTATION_SCALE * this.speed;
+            const rotationSpeed = (TWO_PI / Math.abs(rotationPeriod)) * 0.1 * speed;
             const rotationDirection = rotationPeriod > 0 ? 1 : -1;
 
-            // Apply rotation around local Y axis (accounting for axial tilt already applied)
-            // We need to rotate around the tilted axis, so we use a quaternion approach
-            const tiltRad = (data.axialTilt || 0) * Math.PI / 180;
-            const rotAxis = new THREE.Vector3(Math.sin(tiltRad), Math.cos(tiltRad), 0).normalize();
-            const rotQuat = new THREE.Quaternion().setFromAxisAngle(rotAxis, rotationSpeed * rotationDirection * delta);
-            mesh.quaternion.multiplyQuaternions(rotQuat, mesh.quaternion);
-
+            // Apply rotation using reusable objects
+            const tiltRad = (data.axialTilt || 0) * DEG_TO_RAD;
+            this._rotAxis.set(Math.sin(tiltRad), Math.cos(tiltRad), 0).normalize();
+            this._tempQuat.setFromAxisAngle(this._rotAxis, rotationSpeed * rotationDirection * delta);
+            mesh.quaternion.multiplyQuaternions(this._tempQuat, mesh.quaternion);
         }
 
         // Animate moon systems (separate from planet rotation)
@@ -2394,17 +2407,20 @@ class SolarSystem {
             moonSystem.position.copy(parentPlanet.position);
 
             // Animate each moon in the system
-            for (const moonMesh of moonSystem.userData.moons) {
+            const moons = moonSystem.userData.moons;
+            for (let j = 0, mLen = moons.length; j < mLen; j++) {
+                const moonMesh = moons[j];
                 const moonData = moonMesh.userData;
                 // Moon orbital speed: ~10 seconds per orbit at 1x speed
-                const baseSpeed = 0.01; // radians per frame
-                moonData.angle += baseSpeed * this.speed;
+                moonData.angle += 0.01 * speed;
 
-                moonMesh.position.x = Math.cos(moonData.angle) * moonData.orbitRadius;
-                moonMesh.position.z = Math.sin(moonData.angle) * moonData.orbitRadius;
+                const angle = moonData.angle;
+                const radius = moonData.orbitRadius;
+                moonMesh.position.x = Math.cos(angle) * radius;
+                moonMesh.position.z = Math.sin(angle) * radius;
 
                 // Moon self-rotation (tidally locked)
-                moonMesh.rotation.y = -moonData.angle;
+                moonMesh.rotation.y = -angle;
             }
         }
 
@@ -2471,24 +2487,35 @@ class SolarSystem {
     }
 
     updateLabels() {
-        this.labels.forEach(l => l.remove());
+        // Remove old labels
+        const oldLabels = this.labels;
+        for (let i = 0, len = oldLabels.length; i < len; i++) {
+            oldLabels[i].remove();
+        }
         this.labels = [];
 
         if (!this.showLabels) return;
 
+        // Cache window dimensions
+        const winWidth = window.innerWidth;
+        const winHeight = window.innerHeight;
+        const halfWidth = winWidth * 0.5;
+        const halfHeight = winHeight * 0.5;
+
         // Planet labels
-        for (const p of PLANETS) {
+        for (let i = 0, len = PLANETS.length; i < len; i++) {
+            const p = PLANETS[i];
             if (p.isStar) continue;
 
             const mesh = this.bodies[p.name];
-            const pos = mesh.position.clone();
-            pos.y += mesh.userData.radius + 6;
-            pos.project(this.camera);
+            this._tempVec3.copy(mesh.position);
+            this._tempVec3.y += mesh.userData.radius + 6;
+            this._tempVec3.project(this.camera);
 
-            if (pos.z > 1) continue;
+            if (this._tempVec3.z > 1) continue;
 
-            const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
-            const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+            const x = (this._tempVec3.x + 1) * halfWidth;
+            const y = (1 - this._tempVec3.y) * halfHeight;
 
             const label = document.createElement('div');
             label.className = 'planet-label';
@@ -2502,15 +2529,13 @@ class SolarSystem {
         // Moon label (only on hover)
         if (this.hoveredMoon) {
             const moonData = this.hoveredMoon.userData;
-            const worldPos = new THREE.Vector3();
-            this.hoveredMoon.getWorldPosition(worldPos);
-            worldPos.y += moonData.orbitRadius * 0.3 + 1;
+            this.hoveredMoon.getWorldPosition(this._tempVec3);
+            this._tempVec3.y += moonData.orbitRadius * 0.3 + 1;
+            this._tempVec3.project(this.camera);
 
-            const pos = worldPos.clone().project(this.camera);
-
-            if (pos.z <= 1) {
-                const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
-                const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+            if (this._tempVec3.z <= 1) {
+                const x = (this._tempVec3.x + 1) * halfWidth;
+                const y = (1 - this._tempVec3.y) * halfHeight;
 
                 const label = document.createElement('div');
                 label.className = 'moon-label';
