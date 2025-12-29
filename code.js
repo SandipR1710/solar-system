@@ -1337,9 +1337,15 @@ const PLANETS = [
         orbitRadius: 0,
         period: 0,
         isStar: true,
-        axialTilt: 7.25, // Degrees
-        rotationPeriod: 609.12, // Hours (25.38 days at equator)
+        axialTilt: 7.25,
+        rotationPeriod: 609.12,
         distance: "—",
+        diameter: "1,392,700 km",
+        mass: "333,000",
+        gravity: "274 m/s²",
+        temperature: "5,500°C (surface)",
+        dayLength: "25.4 Earth days",
+        moonCount: "8 planets",
         atmosphere: "The Photosphere & Corona. The Sun is a ball of plasma burning at 5,500°C. Makes up 99.8% of Solar System's mass.",
         environment: "Nuclear fusion engine converting hydrogen to helium. Everything orbits this cosmic boss. Solar wind extends the heliosphere past Pluto."
     },
@@ -1351,9 +1357,15 @@ const PLANETS = [
         eccentricity: 0.206,
         inclination: 7.0,
         argPerihelion: 29.1,
-        axialTilt: 0.034, // Almost no tilt
-        rotationPeriod: 1407.6, // Hours (58.6 Earth days - very slow)
+        axialTilt: 0.034,
+        rotationPeriod: 1407.6,
         distance: "57.9M km (0.39 AU)",
+        diameter: "4,879 km",
+        mass: "0.055",
+        gravity: "3.7 m/s²",
+        temperature: "167°C (avg)",
+        dayLength: "58.6 Earth days",
+        moonCount: "0",
         zone: "inner",
         atmosphere: "Virtually no atmosphere - just a thin exosphere of atoms blasted off by solar wind. Extreme temperature swings from -180°C to 430°C.",
         environment: "Heavily cratered surface similar to our Moon. Weak magnetic field only 1% of Earth's strength. Terrestrial rocky planet."
@@ -1366,9 +1378,15 @@ const PLANETS = [
         eccentricity: 0.007,
         inclination: 3.4,
         argPerihelion: 55.2,
-        axialTilt: 177.4, // Retrograde rotation (upside down)
-        rotationPeriod: -5832.5, // Hours (243 days, negative = retrograde)
+        axialTilt: 177.4,
+        rotationPeriod: -5832.5,
         distance: "108.2M km (0.72 AU)",
+        diameter: "12,104 km",
+        mass: "0.815",
+        gravity: "8.87 m/s²",
+        temperature: "464°C",
+        dayLength: "243 Earth days",
+        moonCount: "0",
         zone: "inner",
         atmosphere: "Thick CO2 atmosphere with sulfuric acid clouds. Surface pressure 90x Earth's. Temperature reaches 465°C - hottest planet.",
         environment: "Runaway greenhouse effect. Retrograde rotation. Surface hidden beneath permanent cloud cover. Terrestrial rocky planet."
@@ -1381,9 +1399,15 @@ const PLANETS = [
         eccentricity: 0.017,
         inclination: 0.0,
         argPerihelion: 114.2,
-        axialTilt: 23.44, // Causes seasons
-        rotationPeriod: 23.93, // Hours
+        axialTilt: 23.44,
+        rotationPeriod: 23.93,
         distance: "149.6M km (1.0 AU)",
+        diameter: "12,742 km",
+        mass: "1.0",
+        gravity: "9.81 m/s²",
+        temperature: "15°C (avg)",
+        dayLength: "24 hours",
+        moonCount: "1",
         zone: "inner",
         moons: [
             { name: "Moon", orbitRadius: 8, period: 27.3, radius: EARTH_RADIUS * 0.27, color: 0xaaaaaa }
@@ -1399,10 +1423,20 @@ const PLANETS = [
         eccentricity: 0.094,
         inclination: 1.9,
         argPerihelion: 286.5,
-        axialTilt: 25.19, // Similar to Earth
-        rotationPeriod: 24.62, // Hours (very similar to Earth)
+        axialTilt: 25.19,
+        rotationPeriod: 24.62,
         distance: "227.9M km (1.52 AU)",
+        diameter: "6,779 km",
+        mass: "0.107",
+        gravity: "3.71 m/s²",
+        temperature: "-65°C (avg)",
+        dayLength: "24.6 hours",
+        moonCount: "2",
         zone: "inner",
+        moons: [
+            { name: "Phobos", orbitRadius: 5, period: 0.32, radius: EARTH_RADIUS * 0.02, color: 0x8a7d6d },
+            { name: "Deimos", orbitRadius: 7, period: 1.26, radius: EARTH_RADIUS * 0.01, color: 0x9c8b7a }
+        ],
         atmosphere: "Thin CO2 atmosphere, less than 1% of Earth's pressure. Dust storms can engulf the entire planet.",
         environment: "Rusty red iron oxide surface. Olympus Mons - largest volcano. Valles Marineris - massive canyon system. Terrestrial rocky planet."
     },
@@ -1415,8 +1449,14 @@ const PLANETS = [
         inclination: 10.6,
         argPerihelion: 73.6,
         axialTilt: 4.0,
-        rotationPeriod: 9.07, // Hours
+        rotationPeriod: 9.07,
         distance: "413M km (2.77 AU)",
+        diameter: "940 km",
+        mass: "0.00016",
+        gravity: "0.28 m/s²",
+        temperature: "-105°C (avg)",
+        dayLength: "9 hours",
+        moonCount: "0",
         isDwarf: true,
         atmosphere: "Extremely thin, transient atmosphere with water vapor detected. Surface temperature around -105°C.",
         environment: "Largest object in the Asteroid Belt. Dwarf planet with subsurface ocean. Bright spots are salt deposits. Home of the asteroid belt."
@@ -1429,9 +1469,15 @@ const PLANETS = [
         eccentricity: 0.049,
         inclination: 1.3,
         argPerihelion: 14.8,
-        axialTilt: 3.13, // Small tilt
-        rotationPeriod: 9.93, // Hours (fastest planet!)
+        axialTilt: 3.13,
+        rotationPeriod: 9.93,
         distance: "778.5M km (5.20 AU)",
+        diameter: "139,820 km",
+        mass: "317.8",
+        gravity: "24.79 m/s²",
+        temperature: "-110°C (cloud top)",
+        dayLength: "9.9 hours",
+        moonCount: "95",
         zone: "gas",
         moons: [
             { name: "Io", orbitRadius: 12, period: 1.77, radius: EARTH_RADIUS * 0.29, color: 0xffff66 },
@@ -1451,12 +1497,24 @@ const PLANETS = [
         inclination: 2.5,
         argPerihelion: 92.9,
         hasRings: true,
-        axialTilt: 26.73, // Significant tilt - affects ring visibility
-        rotationPeriod: 10.7, // Hours
+        axialTilt: 26.73,
+        rotationPeriod: 10.7,
         distance: "1.43B km (9.58 AU)",
+        diameter: "116,460 km",
+        mass: "95.2",
+        gravity: "10.44 m/s²",
+        temperature: "-140°C (cloud top)",
+        dayLength: "10.7 hours",
+        moonCount: "146",
         zone: "gas",
         moons: [
-            { name: "Titan", orbitRadius: 28, period: 15.95, radius: EARTH_RADIUS * 0.40, color: 0xffaa55 }
+            { name: "Mimas", orbitRadius: 10, period: 0.94, radius: EARTH_RADIUS * 0.03, color: 0xcccccc },
+            { name: "Enceladus", orbitRadius: 12, period: 1.37, radius: EARTH_RADIUS * 0.04, color: 0xffffff },
+            { name: "Tethys", orbitRadius: 14, period: 1.89, radius: EARTH_RADIUS * 0.08, color: 0xe8e8e8 },
+            { name: "Dione", orbitRadius: 17, period: 2.74, radius: EARTH_RADIUS * 0.09, color: 0xdddddd },
+            { name: "Rhea", orbitRadius: 22, period: 4.52, radius: EARTH_RADIUS * 0.12, color: 0xd0d0d0 },
+            { name: "Titan", orbitRadius: 28, period: 15.95, radius: EARTH_RADIUS * 0.40, color: 0xffaa55 },
+            { name: "Iapetus", orbitRadius: 38, period: 79.32, radius: EARTH_RADIUS * 0.11, color: 0x8b6914 }
         ],
         atmosphere: "Similar to Jupiter - hydrogen/helium with ammonia crystals giving golden hue. Wind speeds up to 1,800 km/h.",
         environment: "Spectacular ring system made of ice and rock. Hexagonal polar vortex. 146 known moons including Titan. Gas giant."
@@ -1470,10 +1528,23 @@ const PLANETS = [
         inclination: 0.8,
         argPerihelion: 172.4,
         hasRings: true,
-        axialTilt: 97.77, // Rotates on its side!
-        rotationPeriod: -17.24, // Hours (retrograde)
+        axialTilt: 97.77,
+        rotationPeriod: -17.24,
         distance: "2.87B km (19.22 AU)",
+        diameter: "50,724 km",
+        mass: "14.5",
+        gravity: "8.87 m/s²",
+        temperature: "-224°C",
+        dayLength: "17.2 hours",
+        moonCount: "28",
         zone: "ice",
+        moons: [
+            { name: "Miranda", orbitRadius: 8, period: 1.41, radius: EARTH_RADIUS * 0.04, color: 0xaaaaaa },
+            { name: "Ariel", orbitRadius: 11, period: 2.52, radius: EARTH_RADIUS * 0.09, color: 0xc8c8c8 },
+            { name: "Umbriel", orbitRadius: 14, period: 4.14, radius: EARTH_RADIUS * 0.09, color: 0x6b6b6b },
+            { name: "Titania", orbitRadius: 18, period: 8.71, radius: EARTH_RADIUS * 0.12, color: 0xb8b8b8 },
+            { name: "Oberon", orbitRadius: 23, period: 13.46, radius: EARTH_RADIUS * 0.12, color: 0xa0a0a0 }
+        ],
         atmosphere: "Ice giant - water, methane, ammonia. Methane absorbs red light giving cyan color. Extremely cold: -224°C.",
         environment: "Rotates on its side (98° axial tilt). Faint ring system. Rich in water, methane, ammonia. Extreme winds."
     },
@@ -1486,11 +1557,19 @@ const PLANETS = [
         inclination: 1.8,
         argPerihelion: 46.7,
         axialTilt: 28.32,
-        rotationPeriod: 16.11, // Hours
+        rotationPeriod: 16.11,
         distance: "4.50B km (30.05 AU)",
+        diameter: "49,528 km",
+        mass: "17.1",
+        gravity: "11.15 m/s²",
+        temperature: "-214°C",
+        dayLength: "16.1 hours",
+        moonCount: "16",
         zone: "ice",
         moons: [
-            { name: "Triton", orbitRadius: 18, period: 5.88, radius: EARTH_RADIUS * 0.21, color: 0xddccbb }
+            { name: "Proteus", orbitRadius: 10, period: 1.12, radius: EARTH_RADIUS * 0.06, color: 0x777777 },
+            { name: "Triton", orbitRadius: 16, period: 5.88, radius: EARTH_RADIUS * 0.21, color: 0xddccbb },
+            { name: "Nereid", orbitRadius: 24, period: 360.14, radius: EARTH_RADIUS * 0.05, color: 0x999999 }
         ],
         atmosphere: "Ice giant with fastest winds in solar system at 2,100 km/h. Vivid blue from methane.",
         environment: "Great Dark Spot storms. Triton - large moon with geysers. Ice giant, cold and distant. Marks inner edge of Kuiper Belt."
@@ -1503,10 +1582,23 @@ const PLANETS = [
         eccentricity: 0.248,
         inclination: 17.2,
         argPerihelion: 113.8,
-        axialTilt: 122.53, // Highly tilted
-        rotationPeriod: -153.3, // Hours (retrograde, ~6.4 days)
+        axialTilt: 122.53,
+        rotationPeriod: -153.3,
         distance: "5.91B km (39.48 AU)",
+        diameter: "2,377 km",
+        mass: "0.0022",
+        gravity: "0.62 m/s²",
+        temperature: "-230°C",
+        dayLength: "6.4 Earth days",
+        moonCount: "5",
         isDwarf: true,
+        moons: [
+            { name: "Charon", orbitRadius: 6, period: 6.39, radius: EARTH_RADIUS * 0.12, color: 0x9a9a9a },
+            { name: "Nix", orbitRadius: 10, period: 24.85, radius: EARTH_RADIUS * 0.025, color: 0xbbbbbb },
+            { name: "Hydra", orbitRadius: 13, period: 38.20, radius: EARTH_RADIUS * 0.03, color: 0xbbbbbb },
+            { name: "Kerberos", orbitRadius: 11, period: 32.17, radius: EARTH_RADIUS * 0.02, color: 0xaaaaaa },
+            { name: "Styx", orbitRadius: 8, period: 20.16, radius: EARTH_RADIUS * 0.02, color: 0xaaaaaa }
+        ],
         atmosphere: "Thin nitrogen, methane, carbon monoxide atmosphere that freezes and falls as snow when distant from Sun.",
         environment: "Heart-shaped nitrogen glacier (Tombaugh Regio). Five moons including Charon. King of the Kuiper Belt dwarf planets."
     },
@@ -1520,9 +1612,19 @@ const PLANETS = [
         argPerihelion: 239.2,
         hasRings: true,
         axialTilt: 126.0,
-        rotationPeriod: 3.92, // Hours (extremely fast!)
+        rotationPeriod: 3.92,
         distance: "6.45B km (43.13 AU)",
+        diameter: "1,632 km (avg)",
+        mass: "0.00066",
+        gravity: "0.44 m/s²",
+        temperature: "-241°C",
+        dayLength: "3.9 hours",
+        moonCount: "2",
         isDwarf: true,
+        moons: [
+            { name: "Hi'iaka", orbitRadius: 8, period: 49.12, radius: EARTH_RADIUS * 0.025, color: 0xdddddd },
+            { name: "Namaka", orbitRadius: 5, period: 18.28, radius: EARTH_RADIUS * 0.013, color: 0xcccccc }
+        ],
         atmosphere: "No significant atmosphere. Surface covered in crystalline water ice. Elongated egg shape.",
         environment: "Fastest rotating dwarf planet (4-hour day). Has two moons and a ring system. Kuiper Belt object."
     },
@@ -1534,10 +1636,19 @@ const PLANETS = [
         eccentricity: 0.159,
         inclination: 29.0,
         argPerihelion: 294.8,
-        axialTilt: 0, // Unknown, assumed 0
-        rotationPeriod: 22.48, // Hours
+        axialTilt: 0,
+        rotationPeriod: 22.48,
         distance: "6.85B km (45.79 AU)",
+        diameter: "1,430 km",
+        mass: "0.00050",
+        gravity: "0.50 m/s²",
+        temperature: "-243°C",
+        dayLength: "22.5 hours",
+        moonCount: "1",
         isDwarf: true,
+        moons: [
+            { name: "MK2", orbitRadius: 5, period: 12.4, radius: EARTH_RADIUS * 0.013, color: 0x444444 }
+        ],
         atmosphere: "Possible thin atmosphere. Surface covered in methane, ethane, and nitrogen ices.",
         environment: "One of the brightest Kuiper Belt objects. Named after Rapa Nui creation deity. One known moon."
     },
@@ -1549,10 +1660,19 @@ const PLANETS = [
         eccentricity: 0.441,
         inclination: 44.0,
         argPerihelion: 151.4,
-        axialTilt: 78.0, // Approximate
-        rotationPeriod: 25.9, // Hours
+        axialTilt: 78.0,
+        rotationPeriod: 25.9,
         distance: "10.1B km (67.67 AU)",
+        diameter: "2,326 km",
+        mass: "0.0028",
+        gravity: "0.82 m/s²",
+        temperature: "-243°C",
+        dayLength: "25.9 hours",
+        moonCount: "1",
         isDwarf: true,
+        moons: [
+            { name: "Dysnomia", orbitRadius: 6, period: 15.77, radius: EARTH_RADIUS * 0.05, color: 0x888888 }
+        ],
         atmosphere: "Thin atmosphere when closest to Sun, collapses when distant. Covered in methane ice.",
         environment: "Most massive known dwarf planet. Caused Pluto's reclassification. Has moon Dysnomia. Scattered disk object."
     }
@@ -1661,7 +1781,6 @@ class SolarSystem {
         this.bodies = {};
         this.meshes = [];
         this.orbitLines = [];
-        this.labels = [];
         this.glowMeshes = [];
         this.atmosphereMeshes = [];
         this.asteroidBelt = null;
@@ -1684,6 +1803,13 @@ class SolarSystem {
         this.showLabels = true;
         this.mouse = new THREE.Vector2();
         this.raycaster = new THREE.Raycaster();
+
+        // Cached DOM elements (performance)
+        this._domCache = null;
+
+        // Label pooling (performance)
+        this._labelPool = [];
+        this._activeLabelCount = 0;
 
         // View transition
         this.currentView = 'angle';
@@ -1740,6 +1866,24 @@ class SolarSystem {
         this.setupEvents();
 
         document.getElementById('loading').style.display = 'none';
+
+        // Cache DOM elements for performance
+        this._domCache = {
+            planetName: document.getElementById('planet-name'),
+            statPeriod: document.getElementById('stat-period'),
+            statDistance: document.getElementById('stat-distance'),
+            statDiameter: document.getElementById('stat-diameter'),
+            statMass: document.getElementById('stat-mass'),
+            statGravity: document.getElementById('stat-gravity'),
+            statTemperature: document.getElementById('stat-temperature'),
+            statDay: document.getElementById('stat-day'),
+            statMoons: document.getElementById('stat-moons'),
+            infoAtmosphere: document.getElementById('info-atmosphere'),
+            infoEnvironment: document.getElementById('info-environment'),
+            infoPanel: document.getElementById('info-panel'),
+            exitFocus: document.getElementById('exit-focus')
+        };
+
         this.animate();
     }
 
@@ -1992,8 +2136,19 @@ class SolarSystem {
         this.scene.add(moonSystem);
         this.moonSystems[data.name] = moonSystem;
 
-        for (const moon of data.moons) {
-            const moonGeo = new THREE.SphereGeometry(moon.radius, 32, 32);
+        // Shared orbit line material for performance
+        const orbitMat = new THREE.LineBasicMaterial({
+            color: 0x666688,
+            transparent: true,
+            opacity: 0.3
+        });
+
+        const moons = data.moons;
+        for (let i = 0, len = moons.length; i < len; i++) {
+            const moon = moons[i];
+            // Dynamic geometry resolution based on moon size (performance optimization)
+            const segments = moon.radius > 0.5 ? 32 : moon.radius > 0.1 ? 16 : 8;
+            const moonGeo = new THREE.SphereGeometry(moon.radius, segments, segments);
             const moonMat = new THREE.MeshStandardMaterial({
                 color: moon.color,
                 roughness: 0.8,
@@ -2002,35 +2157,33 @@ class SolarSystem {
             const moonMesh = new THREE.Mesh(moonGeo, moonMat);
 
             // Random starting position
-            const startAngle = Math.random() * Math.PI * 2;
-            moonMesh.position.x = Math.cos(startAngle) * moon.orbitRadius;
-            moonMesh.position.z = Math.sin(startAngle) * moon.orbitRadius;
+            const startAngle = Math.random() * TWO_PI;
+            const orbitRadius = moon.orbitRadius;
+            moonMesh.position.x = Math.cos(startAngle) * orbitRadius;
+            moonMesh.position.z = Math.sin(startAngle) * orbitRadius;
 
             moonMesh.userData = {
                 name: moon.name,
-                orbitRadius: moon.orbitRadius,
+                orbitRadius: orbitRadius,
                 period: moon.period,
                 angle: startAngle,
                 parentPlanet: data.name,
                 isMoon: true
             };
 
-            // Add orbit line for moon
-            const orbitPoints = [];
-            for (let i = 0; i <= 64; i++) {
-                const angle = (i / 64) * Math.PI * 2;
-                orbitPoints.push(new THREE.Vector3(
-                    Math.cos(angle) * moon.orbitRadius,
+            // Add orbit line for moon (fewer segments for small moons)
+            const orbitSegments = 48;
+            const orbitPoints = new Array(orbitSegments + 1);
+            const angleStep = TWO_PI / orbitSegments;
+            for (let j = 0; j <= orbitSegments; j++) {
+                const angle = j * angleStep;
+                orbitPoints[j] = new THREE.Vector3(
+                    Math.cos(angle) * orbitRadius,
                     0,
-                    Math.sin(angle) * moon.orbitRadius
-                ));
+                    Math.sin(angle) * orbitRadius
+                );
             }
             const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
-            const orbitMat = new THREE.LineBasicMaterial({
-                color: 0x666688,
-                transparent: true,
-                opacity: 0.3
-            });
             const orbitLine = new THREE.Line(orbitGeo, orbitMat);
             moonSystem.add(orbitLine);
 
@@ -2328,14 +2481,21 @@ class SolarSystem {
         });
 
         const d = body.userData;
-        document.getElementById('planet-name').textContent = d.name;
-        document.getElementById('stat-period').textContent = d.period ? d.period + ' days' : '—';
-        document.getElementById('stat-distance').textContent = d.distance;
-        document.getElementById('info-atmosphere').textContent = d.atmosphere;
-        document.getElementById('info-environment').textContent = d.environment;
+        const dom = this._domCache;
+        dom.planetName.textContent = d.name;
+        dom.statPeriod.textContent = d.period ? d.period.toLocaleString() + ' days' : '—';
+        dom.statDistance.textContent = d.distance || '—';
+        dom.statDiameter.textContent = d.diameter || '—';
+        dom.statMass.textContent = d.mass || '—';
+        dom.statGravity.textContent = d.gravity || '—';
+        dom.statTemperature.textContent = d.temperature || '—';
+        dom.statDay.textContent = d.dayLength || '—';
+        dom.statMoons.textContent = d.moonCount || '—';
+        dom.infoAtmosphere.textContent = d.atmosphere;
+        dom.infoEnvironment.textContent = d.environment;
 
-        document.getElementById('info-panel').classList.remove('hidden');
-        document.getElementById('exit-focus').classList.remove('hidden');
+        dom.infoPanel.classList.remove('hidden');
+        dom.exitFocus.classList.remove('hidden');
 
         this.state = STATE.CHASE;
         this.chaseStart = this.clock.getElapsedTime();
@@ -2347,7 +2507,7 @@ class SolarSystem {
         this.state = STATE.IDLE;
         this.target = null;
         this.controls.target.set(0, 0, 0);
-        document.getElementById('exit-focus').classList.add('hidden');
+        this._domCache.exitFocus.classList.add('hidden');
         document.querySelectorAll('.planet-btn').forEach(btn => btn.classList.remove('active'));
     }
 
@@ -2486,15 +2646,30 @@ class SolarSystem {
         this.renderer.render(this.scene, this.camera);
     }
 
-    updateLabels() {
-        // Remove old labels
-        const oldLabels = this.labels;
-        for (let i = 0, len = oldLabels.length; i < len; i++) {
-            oldLabels[i].remove();
+    _getLabel(index, className) {
+        // Reuse existing label or create new one
+        if (index < this._labelPool.length) {
+            const label = this._labelPool[index];
+            label.style.display = '';
+            return label;
         }
-        this.labels = [];
+        const label = document.createElement('div');
+        document.body.appendChild(label);
+        this._labelPool.push(label);
+        return label;
+    }
 
-        if (!this.showLabels) return;
+    updateLabels() {
+        let labelIndex = 0;
+
+        // Hide all labels first if not showing
+        if (!this.showLabels) {
+            for (let i = 0; i < this._activeLabelCount; i++) {
+                this._labelPool[i].style.display = 'none';
+            }
+            this._activeLabelCount = 0;
+            return;
+        }
 
         // Cache window dimensions
         const winWidth = window.innerWidth;
@@ -2517,13 +2692,11 @@ class SolarSystem {
             const x = (this._tempVec3.x + 1) * halfWidth;
             const y = (1 - this._tempVec3.y) * halfHeight;
 
-            const label = document.createElement('div');
+            const label = this._getLabel(labelIndex++, 'planet-label');
             label.className = 'planet-label';
             label.innerHTML = `<span class="label-text">${p.name}</span><span class="label-line"></span>`;
             label.style.left = x + 'px';
             label.style.top = y + 'px';
-            document.body.appendChild(label);
-            this.labels.push(label);
         }
 
         // Moon label (only on hover)
@@ -2537,15 +2710,19 @@ class SolarSystem {
                 const x = (this._tempVec3.x + 1) * halfWidth;
                 const y = (1 - this._tempVec3.y) * halfHeight;
 
-                const label = document.createElement('div');
+                const label = this._getLabel(labelIndex++, 'moon-label');
                 label.className = 'moon-label';
                 label.innerHTML = `<span class="label-text">${moonData.name}</span><span class="label-sub">${moonData.parentPlanet}</span>`;
                 label.style.left = x + 'px';
                 label.style.top = y + 'px';
-                document.body.appendChild(label);
-                this.labels.push(label);
             }
         }
+
+        // Hide unused labels from pool
+        for (let i = labelIndex; i < this._activeLabelCount; i++) {
+            this._labelPool[i].style.display = 'none';
+        }
+        this._activeLabelCount = labelIndex;
     }
 }
 
