@@ -1820,6 +1820,28 @@ class SolarSystem {
         this.viewStartTarget = new THREE.Vector3();
         this.viewEndTarget = new THREE.Vector3();
 
+        // ============================================
+        // SUPERNOVA EXPLOSION STATE (DETERMINISTIC)
+        // ============================================
+        this.isExploding = false;
+        this.explosionTime = 0;  // Master time variable - can go negative for reverse
+        this.timeDirection = 1;  // 1 = forward, -1 = reverse
+        this.shockwave = null;
+        this.innerShockwave = null;
+        this.planetBlastData = {};  // Stores original pos, blast direction, blast distance for each planet
+        this.explosionParticles = [];
+        this.cameraShakeIntensity = 0;
+        this.originalSunColor = null;
+        this.originalSunLightIntensity = 3;
+        this.burntTexture = null;
+        this.flashTriggered = false;
+        this.lensFlare = null;
+        this.noiseTexture = null;
+
+        // Timing constants
+        this.ANTICIPATION_DURATION = 0.5;
+        this.EXPLOSION_DURATION = 8.0;  // Total explosion time before "complete"
+
         this.init();
     }
 
@@ -1862,6 +1884,7 @@ class SolarSystem {
         this.createOrbits();
         this.createAsteroidBelt();
         this.createKuiperBelt();
+        this.preloadExplosionAssets(); // Pre-load for performance
         this.setupUI();
         this.setupEvents();
 
@@ -2418,6 +2441,11 @@ class SolarSystem {
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setView(btn.dataset.view));
         });
+
+        // Supernova button
+        document.getElementById('supernova-btn')?.addEventListener('click', () => {
+            this.toggleSupernova();
+        });
     }
 
     setView(viewName) {
@@ -2511,12 +2539,2643 @@ class SolarSystem {
         document.querySelectorAll('.planet-btn').forEach(btn => btn.classList.remove('active'));
     }
 
+    // ============================================
+    // SUPERNOVA EXPLOSION SYSTEM (CINEMATIC)
+    // ============================================
+
+    preloadExplosionAssets() {
+        // Create all textures
+        this.createBurntTexture();
+        this.createNoiseTexture();
+        this.createPlasmaShockwaveTexture();
+        this.createHeatGlowTexture();
+        this.createVaporizationTexture();
+        this.createAtmosphereStripTexture();
+
+        // Save original background color
+        this.originalBackgroundColor = new THREE.Color(0x020205);
+
+        // === OUTER SHOCKWAVE: Fiery plasma shell ===
+        const shockwaveGeo = new THREE.SphereGeometry(1, 64, 64);
+        const shockwaveMat = new THREE.MeshBasicMaterial({
+            map: this.plasmaTexture,
+            color: 0xff8844,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
+        this.shockwave = new THREE.Mesh(shockwaveGeo, shockwaveMat);
+        this.shockwave.visible = false;
+        this.shockwave.scale.setScalar(0.01);
+        this.scene.add(this.shockwave);
+
+        // === MIDDLE SHOCKWAVE: Bright white-hot core ===
+        const midShockwaveGeo = new THREE.SphereGeometry(1, 48, 48);
+        const midShockwaveMat = new THREE.MeshBasicMaterial({
+            color: 0xffffaa,
+            transparent: true,
+            opacity: 0.6,
+            alphaMap: this.noiseTexture,
+            blending: THREE.AdditiveBlending,
+            side: THREE.BackSide,
+            depthWrite: false
+        });
+        this.innerShockwave = new THREE.Mesh(midShockwaveGeo, midShockwaveMat);
+        this.innerShockwave.visible = false;
+        this.innerShockwave.scale.setScalar(0.01);
+        this.scene.add(this.innerShockwave);
+
+        // === INNER CORE: Intense white center ===
+        const coreGeo = new THREE.SphereGeometry(1, 32, 32);
+        const coreMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            side: THREE.FrontSide,
+            depthWrite: false
+        });
+        this.shockwaveCore = new THREE.Mesh(coreGeo, coreMat);
+        this.shockwaveCore.visible = false;
+        this.shockwaveCore.scale.setScalar(0.01);
+        this.scene.add(this.shockwaveCore);
+
+        // Create lens flare sprite for camera blinding effect
+        this.createLensFlare();
+
+        // Create bloom sprite for intense screen-wide flash effect
+        this.createBloomSprite();
+
+        // Pre-create heat glow material for planets heating up
+        this.heatGlowMaterial = new THREE.MeshStandardMaterial({
+            map: this.heatGlowTexture,
+            emissive: 0xff4400,
+            emissiveIntensity: 1.0,
+            roughness: 0.3,
+            metalness: 0.2
+        });
+
+        // Pre-create atmosphere strip material for gas giants
+        this.atmosphereStripMaterial = new THREE.MeshStandardMaterial({
+            map: this.atmosphereStripTexture,
+            emissive: 0xff6600,
+            emissiveIntensity: 0.8,
+            roughness: 0.5,
+            metalness: 0.3
+        });
+
+        // Cache flash element
+        this._flashElement = document.getElementById('supernova-flash');
+    }
+
+    createBurntTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        // Dark burnt gradient with more detail
+        const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+        gradient.addColorStop(0, '#1a1a2e');
+        gradient.addColorStop(0.3, '#16213e');
+        gradient.addColorStop(0.5, '#0f0f1a');
+        gradient.addColorStop(0.7, '#1a1a2e');
+        gradient.addColorStop(1, '#0a0a15');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 512, 256);
+
+        // Add crackling/charred noise
+        for (let i = 0; i < 2000; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 256;
+            const shade = Math.random() * 40;
+            const size = Math.random() * 3 + 1;
+            ctx.fillStyle = `rgba(${shade}, ${shade + 5}, ${shade + 15}, 0.6)`;
+            ctx.fillRect(x, y, size, size);
+        }
+
+        // Add some glowing ember spots
+        for (let i = 0; i < 50; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 256;
+            const radius = Math.random() * 4 + 2;
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            grad.addColorStop(0, 'rgba(255, 100, 50, 0.3)');
+            grad.addColorStop(1, 'rgba(100, 30, 10, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+        }
+
+        this.burntTexture = new THREE.CanvasTexture(canvas);
+    }
+
+    createPlasmaShockwaveTexture() {
+        // Create a fiery plasma texture for the shockwave
+        const canvas = document.createElement('canvas');
+        canvas.width = 1024;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        // Base: dark to transparent gradient
+        const baseGrad = ctx.createLinearGradient(0, 0, 1024, 0);
+        baseGrad.addColorStop(0, 'rgba(255, 100, 50, 0.9)');
+        baseGrad.addColorStop(0.3, 'rgba(255, 200, 100, 0.7)');
+        baseGrad.addColorStop(0.5, 'rgba(255, 255, 200, 0.8)');
+        baseGrad.addColorStop(0.7, 'rgba(255, 150, 50, 0.6)');
+        baseGrad.addColorStop(1, 'rgba(255, 80, 30, 0.3)');
+        ctx.fillStyle = baseGrad;
+        ctx.fillRect(0, 0, 1024, 512);
+
+        // Add turbulent flame patterns
+        for (let i = 0; i < 3000; i++) {
+            const x = Math.random() * 1024;
+            const y = Math.random() * 512;
+            const radius = Math.random() * 15 + 2;
+            const brightness = Math.random();
+
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            if (brightness > 0.7) {
+                // Hot white-yellow core
+                grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                grad.addColorStop(0.3, 'rgba(255, 255, 200, 0.6)');
+                grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+            } else if (brightness > 0.4) {
+                // Orange flames
+                grad.addColorStop(0, 'rgba(255, 180, 50, 0.8)');
+                grad.addColorStop(0.5, 'rgba(255, 100, 30, 0.4)');
+                grad.addColorStop(1, 'rgba(200, 50, 20, 0)');
+            } else {
+                // Red/dark edges
+                grad.addColorStop(0, 'rgba(200, 60, 30, 0.6)');
+                grad.addColorStop(1, 'rgba(100, 20, 10, 0)');
+            }
+            ctx.fillStyle = grad;
+            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+        }
+
+        // Add bright streaks (solar flare style)
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 50; i++) {
+            const x = Math.random() * 1024;
+            const y = Math.random() * 512;
+            const length = Math.random() * 100 + 50;
+            const angle = Math.random() * Math.PI * 2;
+
+            const grad = ctx.createLinearGradient(
+                x, y,
+                x + Math.cos(angle) * length,
+                y + Math.sin(angle) * length
+            );
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+            grad.addColorStop(0.5, 'rgba(255, 200, 100, 0.3)');
+            grad.addColorStop(1, 'rgba(255, 100, 50, 0)');
+
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = Math.random() * 4 + 1;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+            ctx.stroke();
+        }
+
+        this.plasmaTexture = new THREE.CanvasTexture(canvas);
+        this.plasmaTexture.wrapS = THREE.RepeatWrapping;
+        this.plasmaTexture.wrapT = THREE.RepeatWrapping;
+    }
+
+    createHeatGlowTexture() {
+        // Create texture for planets heating up before vaporization
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        // Hot magma/lava surface
+        const grad = ctx.createLinearGradient(0, 0, 0, 256);
+        grad.addColorStop(0, '#ff6600');
+        grad.addColorStop(0.3, '#ff3300');
+        grad.addColorStop(0.5, '#cc2200');
+        grad.addColorStop(0.7, '#991100');
+        grad.addColorStop(1, '#660800');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 512, 256);
+
+        // Add glowing cracks
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 200; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 256;
+            const size = Math.random() * 20 + 5;
+
+            const crackGrad = ctx.createRadialGradient(x, y, 0, x, y, size);
+            crackGrad.addColorStop(0, 'rgba(255, 255, 200, 0.9)');
+            crackGrad.addColorStop(0.3, 'rgba(255, 200, 100, 0.6)');
+            crackGrad.addColorStop(0.7, 'rgba(255, 100, 50, 0.3)');
+            crackGrad.addColorStop(1, 'rgba(200, 50, 20, 0)');
+            ctx.fillStyle = crackGrad;
+            ctx.fillRect(x - size, y - size, size * 2, size * 2);
+        }
+
+        // Add bright veins
+        ctx.strokeStyle = 'rgba(255, 255, 150, 0.4)';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 30; i++) {
+            ctx.beginPath();
+            let x = Math.random() * 512;
+            let y = Math.random() * 256;
+            ctx.moveTo(x, y);
+            for (let j = 0; j < 5; j++) {
+                x += (Math.random() - 0.5) * 50;
+                y += (Math.random() - 0.5) * 30;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        this.heatGlowTexture = new THREE.CanvasTexture(canvas);
+    }
+
+    createVaporizationTexture() {
+        // Create texture for vaporizing/disintegrating planets
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        // Radial plasma cloud
+        const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.1, 'rgba(255, 255, 200, 0.9)');
+        grad.addColorStop(0.3, 'rgba(255, 200, 100, 0.7)');
+        grad.addColorStop(0.5, 'rgba(255, 150, 80, 0.5)');
+        grad.addColorStop(0.7, 'rgba(255, 100, 50, 0.3)');
+        grad.addColorStop(0.9, 'rgba(200, 50, 30, 0.1)');
+        grad.addColorStop(1, 'rgba(100, 30, 20, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+
+        // Add bright spots
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 100; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * 100;
+            const x = 128 + Math.cos(angle) * dist;
+            const y = 128 + Math.sin(angle) * dist;
+            const size = Math.random() * 8 + 2;
+
+            const spotGrad = ctx.createRadialGradient(x, y, 0, x, y, size);
+            spotGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+            spotGrad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+            ctx.fillStyle = spotGrad;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        this.vaporizationTexture = new THREE.CanvasTexture(canvas);
+    }
+
+    createAtmosphereStripTexture() {
+        // Create texture for gas giant atmosphere being stripped
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        // Turbulent stripped atmosphere look
+        const grad = ctx.createLinearGradient(0, 0, 512, 0);
+        grad.addColorStop(0, '#553322');
+        grad.addColorStop(0.2, '#442211');
+        grad.addColorStop(0.4, '#664433');
+        grad.addColorStop(0.6, '#553322');
+        grad.addColorStop(0.8, '#332211');
+        grad.addColorStop(1, '#221100');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 512, 256);
+
+        // Add storm bands being torn apart
+        for (let y = 0; y < 256; y += 20) {
+            const bandGrad = ctx.createLinearGradient(0, y, 512, y);
+            const r = 80 + Math.random() * 40;
+            const g = 40 + Math.random() * 30;
+            const b = 20 + Math.random() * 20;
+            bandGrad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.8)`);
+            bandGrad.addColorStop(0.5, `rgba(${r + 30}, ${g + 20}, ${b + 10}, 0.5)`);
+            bandGrad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.3)`);
+            ctx.fillStyle = bandGrad;
+            ctx.fillRect(0, y, 512, 15 + Math.random() * 10);
+        }
+
+        // Add glowing edges (heat from supernova)
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 100; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 256;
+            const size = Math.random() * 15 + 5;
+            const glowGrad = ctx.createRadialGradient(x, y, 0, x, y, size);
+            glowGrad.addColorStop(0, 'rgba(255, 150, 50, 0.5)');
+            glowGrad.addColorStop(1, 'rgba(255, 100, 30, 0)');
+            ctx.fillStyle = glowGrad;
+            ctx.fillRect(x - size, y - size, size * 2, size * 2);
+        }
+
+        this.atmosphereStripTexture = new THREE.CanvasTexture(canvas);
+    }
+
+    createNoiseTexture() {
+        // Create procedural noise/cloud texture for shockwave chaos
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        // Fill with black (fully transparent areas)
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, 512, 512);
+
+        // Generate turbulent noise pattern
+        for (let i = 0; i < 8000; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const radius = Math.random() * 20 + 5;
+            const brightness = Math.floor(Math.random() * 200 + 55);
+
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            grad.addColorStop(0, `rgb(${brightness}, ${brightness}, ${brightness})`);
+            grad.addColorStop(0.5, `rgb(${brightness * 0.5}, ${brightness * 0.5}, ${brightness * 0.5})`);
+            grad.addColorStop(1, 'rgb(0, 0, 0)');
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Add some larger cloud formations
+        for (let i = 0; i < 50; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const radius = Math.random() * 80 + 40;
+            const brightness = Math.floor(Math.random() * 150 + 50);
+
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            grad.addColorStop(0, `rgba(${brightness}, ${brightness}, ${brightness}, 0.8)`);
+            grad.addColorStop(0.6, `rgba(${brightness * 0.3}, ${brightness * 0.3}, ${brightness * 0.3}, 0.4)`);
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        this.noiseTexture = new THREE.CanvasTexture(canvas);
+        this.noiseTexture.wrapS = THREE.RepeatWrapping;
+        this.noiseTexture.wrapT = THREE.RepeatWrapping;
+    }
+
+    createLensFlare() {
+        // Create a glowing star/flare sprite for lens flare effect
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        const cx = 128, cy = 128;
+
+        // Transparent background
+        ctx.clearRect(0, 0, 256, 256);
+
+        // Outer soft glow
+        const outerGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 128);
+        outerGlow.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        outerGlow.addColorStop(0.1, 'rgba(255, 250, 240, 0.8)');
+        outerGlow.addColorStop(0.3, 'rgba(200, 220, 255, 0.4)');
+        outerGlow.addColorStop(0.6, 'rgba(150, 180, 255, 0.15)');
+        outerGlow.addColorStop(1, 'rgba(100, 150, 255, 0)');
+
+        ctx.fillStyle = outerGlow;
+        ctx.fillRect(0, 0, 256, 256);
+
+        // Star rays (horizontal and vertical)
+        ctx.globalCompositeOperation = 'lighter';
+        const rayGrad = ctx.createLinearGradient(0, cy, 256, cy);
+        rayGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        rayGrad.addColorStop(0.4, 'rgba(255, 255, 255, 0.3)');
+        rayGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+        rayGrad.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');
+        rayGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+        ctx.fillStyle = rayGrad;
+        ctx.fillRect(0, cy - 4, 256, 8);
+
+        const rayGradV = ctx.createLinearGradient(cx, 0, cx, 256);
+        rayGradV.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        rayGradV.addColorStop(0.4, 'rgba(255, 255, 255, 0.3)');
+        rayGradV.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+        rayGradV.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');
+        rayGradV.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+        ctx.fillStyle = rayGradV;
+        ctx.fillRect(cx - 4, 0, 8, 256);
+
+        // Diagonal rays
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = rayGrad;
+        ctx.fillRect(-128, -2, 256, 4);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillRect(-128, -2, 256, 4);
+        ctx.restore();
+
+        const flareTexture = new THREE.CanvasTexture(canvas);
+
+        // Create sprite material
+        const spriteMat = new THREE.SpriteMaterial({
+            map: flareTexture,
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            depthTest: false
+        });
+
+        this.lensFlare = new THREE.Sprite(spriteMat);
+        this.lensFlare.scale.setScalar(1);  // Will be scaled up during explosion
+        this.lensFlare.visible = false;
+        this.scene.add(this.lensFlare);
+    }
+
+    createBloomSprite() {
+        // Create a massive soft white glow sprite for the "blinding" bloom effect
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        const cx = 256, cy = 256;
+
+        // Soft radial gradient - pure white center fading to transparent
+        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, 256);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        gradient.addColorStop(0.1, 'rgba(255, 255, 255, 0.95)');
+        gradient.addColorStop(0.3, 'rgba(255, 250, 240, 0.7)');
+        gradient.addColorStop(0.5, 'rgba(255, 240, 220, 0.4)');
+        gradient.addColorStop(0.7, 'rgba(255, 220, 180, 0.2)');
+        gradient.addColorStop(0.9, 'rgba(255, 200, 150, 0.05)');
+        gradient.addColorStop(1, 'rgba(255, 180, 120, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 512, 512);
+
+        const bloomTexture = new THREE.CanvasTexture(canvas);
+
+        const bloomMat = new THREE.SpriteMaterial({
+            map: bloomTexture,
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            depthTest: false
+        });
+
+        this.bloomSprite = new THREE.Sprite(bloomMat);
+        this.bloomSprite.position.set(0, 0, 0);  // At Sun's position
+        this.bloomSprite.scale.setScalar(1);
+        this.bloomSprite.visible = false;
+        this.scene.add(this.bloomSprite);
+    }
+
+    toggleSupernova() {
+        const btn = document.getElementById('supernova-btn');
+        if (!this.isExploding) {
+            // Start explosion - forward time
+            this.isExploding = true;
+            this.timeDirection = 1;
+            btn.textContent = 'RESET SOLAR SYSTEM';
+            btn.classList.add('active');
+            this.startExplosion();
+        } else if (this.timeDirection === 1) {
+            // Reverse time (Tenet mode)
+            this.timeDirection = -1;
+            btn.textContent = 'REVERSING...';
+        }
+        // If already reversing, do nothing - let it complete
+    }
+
+    startExplosion() {
+        // Reset master time
+        this.explosionTime = 0;
+        this.timeDirection = 1;
+        this.flashTriggered = false;
+        this.cameraShakeIntensity = 0;
+
+        // Hide UI elements during explosion
+        document.getElementById('app').classList.add('explosion-active');
+
+        // Hide orbit lines during explosion
+        this.orbitLines.forEach(line => line.visible = false);
+
+        // Only disable panning - allow zoom and rotate
+        this.controls.enablePan = false;
+        this.controls.enableZoom = true;
+        this.controls.enableRotate = true;
+
+        // Initialize debris clouds array
+        this.debrisClouds = [];
+
+        // Define planet categories for scientific accuracy
+        const rockyPlanets = ['Mercury', 'Venus', 'Earth', 'Mars', 'Ceres'];
+        const gasGiants = ['Jupiter', 'Saturn', 'Uranus', 'Neptune'];
+        const dwarfPlanets = ['Pluto', 'Haumea', 'Makemake', 'Eris'];
+
+        // Dramatic but scientifically-inspired velocities
+        // Rocky planets: vaporize instantly, debris flies fast
+        // Gas giants: massive, pushed slowly but visibly
+        const planetVelocities = {
+            // Rocky planets - FAST (they explode/vaporize)
+            'Mercury': 120, 'Venus': 100, 'Earth': 90, 'Mars': 110, 'Ceres': 150,
+            // Gas giants - SLOW but VISIBLE (they're pushed, not destroyed)
+            'Jupiter': 8, 'Saturn': 12, 'Uranus': 25, 'Neptune': 20,
+            // Dwarf planets - VERY FAST (tiny, blown away)
+            'Pluto': 200, 'Haumea': 220, 'Makemake': 210, 'Eris': 180
+        };
+
+        // Calculate blast data for each planet (deterministic)
+        this.planetBlastData = {};
+        for (const name in this.bodies) {
+            const mesh = this.bodies[name];
+            const originalPos = mesh.position.clone();
+
+            // Calculate blast direction (away from sun)
+            const direction = originalPos.clone().normalize();
+            if (direction.length() === 0) {
+                direction.set(1, 0, 0);  // Sun stays at origin
+            }
+
+            // Determine planet type
+            const isRocky = rockyPlanets.includes(name);
+            const isGasGiant = gasGiants.includes(name);
+            const isDwarf = dwarfPlanets.includes(name);
+            const isStar = mesh.userData.isStar;
+
+            // Get velocity - dramatic values that look good
+            let velocity = planetVelocities[name] || 50;
+            if (isStar) velocity = 0;
+
+            this.planetBlastData[name] = {
+                originalPos: originalPos,
+                direction: direction,
+                originalMaterial: mesh.material,
+                originalScale: mesh.scale.clone(),
+                originalRotation: mesh.rotation.clone(),
+                // Momentum physics - velocity starts at 0, gets set when hit
+                velocity: new THREE.Vector3(0, 0, 0),
+                blastSpeed: velocity,  // Speed to apply when hit
+                hasBeenHit: false,
+                hitTime: 0,  // Track when planet was hit for effects
+                // Planet classification
+                isRocky: isRocky,
+                isGasGiant: isGasGiant,
+                isDwarf: isDwarf,
+                isStar: isStar,
+                // Vaporization state (for rocky planets)
+                isVaporized: false,
+                debrisClouds: [],  // Multiple debris particles
+                // Scorched state (for gas giants)
+                isScorched: false,
+                // Tumbling rotation (more dramatic)
+                tumbleSpeedX: (Math.random() - 0.5) * 0.15,
+                tumbleSpeedY: (Math.random() - 0.5) * 0.15,
+                tumbleSpeedZ: (Math.random() - 0.5) * 0.1,
+                // Position history for perfect reversal
+                positionHistory: [originalPos.clone()]
+            };
+        }
+
+        // Save original Sun material
+        const sunMesh = this.bodies.Sun;
+        if (sunMesh && sunMesh.material) {
+            this.originalSunColor = sunMesh.material.map;
+        }
+
+        // Save original light intensity
+        this.originalSunLightIntensity = this.sunLight.intensity;
+
+        // Start anticipation - Sun heats up
+        this.glowMeshes.forEach((glow) => {
+            glow.material.color.setHex(0xffffff);
+        });
+    }
+
+    triggerFlash() {
+        if (this._flashElement) {
+            this._flashElement.classList.add('active');
+            setTimeout(() => {
+                this._flashElement.classList.remove('active');
+            }, 400);
+        }
+    }
+
+    // Easing function for smooth blast motion
+    easeOutQuad(t) {
+        return t * (2 - t);
+    }
+
+    easeInOutQuad(t) {
+        return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    }
+
+    updateExplosion(deltaTime) {
+        // ============================================
+        // MASTER TIME UPDATE
+        // ============================================
+        // Time moves forward or backward based on direction
+        // Speed is 5x for reverse to make it FAST
+        const timeSpeed = this.timeDirection === 1 ? 1.0 : 5.0;
+        this.explosionTime += deltaTime * this.timeDirection * timeSpeed;
+
+        // Constants
+        const ANTICIPATION_END = this.ANTICIPATION_DURATION;  // 0.5s
+        const SHOCKWAVE_SPEED = 150;
+        const MAX_SHOCKWAVE_RADIUS = AU * 80;
+        const LIGHT_DECAY_DURATION = 5;
+        const BACKGROUND_FADE_DURATION = 2;
+
+        // ============================================
+        // CHECK FOR COMPLETION (reverse finished)
+        // ============================================
+        if (this.explosionTime <= -0.1) {
+            this.completeReversal();
+            return;
+        }
+
+        // ============================================
+        // PHASE 1: ANTICIPATION (time 0 to 0.5)
+        // Sun shrinks, heats up
+        // ============================================
+        if (this.explosionTime < ANTICIPATION_END && this.explosionTime >= 0) {
+            const t = this.explosionTime / ANTICIPATION_END;  // 0 to 1
+
+            // Sun shrinks from 1.0 to 0.1
+            const sunScale = 1.0 - (t * 0.9);
+            if (this.bodies.Sun) {
+                this.bodies.Sun.scale.setScalar(sunScale);
+                // Color shifts to white-hot
+                this.bodies.Sun.material = new THREE.MeshBasicMaterial({
+                    color: new THREE.Color().setRGB(1, 1 - t * 0.3, 1 - t * 0.5)
+                });
+            }
+
+            // Building camera shake
+            this.cameraShakeIntensity = t * 0.5;
+
+            // Glow intensifies
+            this.glowMeshes.forEach((glow) => {
+                glow.material.opacity = 0.15 + t * 0.3;
+            });
+
+            // Hide shockwaves during anticipation
+            if (this.shockwave) this.shockwave.visible = false;
+            if (this.innerShockwave) this.innerShockwave.visible = false;
+            if (this.shockwaveCore) this.shockwaveCore.visible = false;
+            if (this.lensFlare) this.lensFlare.visible = false;
+
+            return;
+        }
+
+        // ============================================
+        // TRIGGER FLASH (exactly once when crossing threshold)
+        // ============================================
+        if (this.explosionTime >= ANTICIPATION_END && !this.flashTriggered && this.timeDirection === 1) {
+            this.flashTriggered = true;
+            this.triggerFlash();
+            this.renderer.setClearColor(0x88ccff);
+
+            // Sun appearance change
+            if (this.bodies.Sun) {
+                this.bodies.Sun.material = new THREE.MeshBasicMaterial({ color: 0xaaddff });
+            }
+
+            // Glow to blue-white
+            this.glowMeshes.forEach((glow, i) => {
+                glow.material.color.setHex(0xaaddff);
+            });
+        }
+
+        // Reset flash trigger when reversing past threshold
+        if (this.explosionTime < ANTICIPATION_END && this.timeDirection === -1) {
+            this.flashTriggered = false;
+        }
+
+        // ============================================
+        // PHASE 2: EXPLOSION (time > 0.5)
+        // All calculations are DETERMINISTIC based on explosionTime
+        // ============================================
+        const explosionProgress = Math.max(0, this.explosionTime - ANTICIPATION_END);
+        const normalizedProgress = Math.min(explosionProgress / this.EXPLOSION_DURATION, 1.0);
+
+        // --- SHOCKWAVE RADIUS (deterministic) ---
+        const shockwaveRadius = explosionProgress * SHOCKWAVE_SPEED;
+
+        // --- SUN SCALE ---
+        if (this.bodies.Sun) {
+            // Expand from 0.1 to 2.5 over first second of explosion
+            const sunExpandT = Math.min(explosionProgress, 1.0);
+            const sunScale = 0.1 + sunExpandT * 2.4;
+            this.bodies.Sun.scale.setScalar(sunScale);
+        }
+
+        // --- LIGHT INTENSITY (cinematic but not blinding) ---
+        const lightProgress = Math.min(explosionProgress / LIGHT_DECAY_DURATION, 1.0);
+        // Reduced from 50 to 15 for visibility
+        this.sunLight.intensity = 15 * (1 - lightProgress) + this.originalSunLightIntensity * lightProgress;
+        this.sunLight.color.setRGB(1, 0.95 - lightProgress * 0.1, 0.85 - lightProgress * 0.15);
+
+        // --- BACKGROUND COLOR (subtle warm glow) ---
+        if (explosionProgress < BACKGROUND_FADE_DURATION) {
+            const bgT = explosionProgress / BACKGROUND_FADE_DURATION;
+            // Much subtler: dark orange glow instead of bright blue
+            const r = Math.floor(0x30 * (1 - bgT) + 0x02 * bgT);
+            const g = Math.floor(0x18 * (1 - bgT) + 0x02 * bgT);
+            const b = Math.floor(0x10 * (1 - bgT) + 0x05 * bgT);
+            this.renderer.setClearColor((r << 16) | (g << 8) | b);
+        } else {
+            this.renderer.setClearColor(0x020205);
+        }
+
+        // --- LENS FLARE (subtle sun glow) ---
+        if (this.lensFlare) {
+            if (explosionProgress < 2) {
+                this.lensFlare.visible = true;
+                this.lensFlare.position.set(0, 0, 0);
+                const flareT = 1 - explosionProgress / 2;
+                this.lensFlare.material.opacity = flareT * 0.4;  // Reduced from 0.9
+                this.lensFlare.scale.setScalar(30 + flareT * 70);  // Smaller
+            } else {
+                this.lensFlare.visible = false;
+            }
+        }
+
+        // --- SHOCKWAVE VISUALS (beautiful but see-through) ---
+        const fadeT = shockwaveRadius / MAX_SHOCKWAVE_RADIUS;
+
+        // OUTER LAYER: Fiery plasma shell (semi-transparent)
+        if (this.shockwave) {
+            if (shockwaveRadius > 0 && shockwaveRadius < MAX_SHOCKWAVE_RADIUS) {
+                this.shockwave.visible = true;
+                this.shockwave.scale.setScalar(shockwaveRadius);
+
+                // Color shifts from orange to red as it expands
+                const colorT = Math.min(explosionProgress / 4, 1);
+                const r = 1.0;
+                const g = Math.max(0.4, 0.8 - colorT * 0.4);
+                const b = Math.max(0.2, 0.5 - colorT * 0.3);
+                this.shockwave.material.color.setRGB(r, g, b);
+                // Much more transparent so planets are visible through it
+                this.shockwave.material.opacity = 0.35 * (1 - fadeT * 0.6);
+
+                // Rotate for animated plasma effect
+                this.shockwave.rotation.x += 0.008 * this.timeDirection;
+                this.shockwave.rotation.y += 0.012 * this.timeDirection;
+                this.shockwave.rotation.z += 0.005 * this.timeDirection;
+            } else {
+                this.shockwave.visible = false;
+            }
+        }
+
+        // MIDDLE LAYER: Warm glow (very transparent)
+        if (this.innerShockwave) {
+            if (shockwaveRadius > 0 && shockwaveRadius < MAX_SHOCKWAVE_RADIUS) {
+                this.innerShockwave.visible = true;
+                this.innerShockwave.scale.setScalar(shockwaveRadius * 0.95);
+
+                const colorT = Math.min(explosionProgress / 3, 1);
+                this.innerShockwave.material.color.setRGB(1, 0.9 - colorT * 0.2, 0.6 - colorT * 0.3);
+                this.innerShockwave.material.opacity = 0.25 * (1 - fadeT * 0.8);
+
+                this.innerShockwave.rotation.z += 0.02 * this.timeDirection;
+                this.innerShockwave.rotation.x -= 0.01 * this.timeDirection;
+            } else {
+                this.innerShockwave.visible = false;
+            }
+        }
+
+        // CORE LAYER: Leading edge glow (subtle)
+        if (this.shockwaveCore) {
+            if (shockwaveRadius > 0 && shockwaveRadius < MAX_SHOCKWAVE_RADIUS) {
+                this.shockwaveCore.visible = true;
+                this.shockwaveCore.scale.setScalar(shockwaveRadius * 0.85);
+                this.shockwaveCore.material.opacity = 0.4 * (1 - fadeT * 0.85);
+            } else {
+                this.shockwaveCore.visible = false;
+            }
+        }
+
+        // --- PLANET POSITIONS & MATERIALS (scientifically accurate destruction) ---
+        this.updatePlanetBlast(shockwaveRadius, normalizedProgress, deltaTime);
+
+        // --- BLOOM SPRITE (subtle glow - NOT blinding) ---
+        if (this.bloomSprite) {
+            if (explosionProgress < 0.1) {
+                // Brief initial flash - much more subtle
+                this.bloomSprite.visible = true;
+                const bloomT = explosionProgress / 0.1;
+                this.bloomSprite.scale.setScalar(50 + bloomT * 100);
+                this.bloomSprite.material.opacity = (1 - bloomT) * 0.4;  // Reduced from 0.95
+            } else if (explosionProgress < 1.5) {
+                // Gentle lingering glow
+                this.bloomSprite.visible = true;
+                const fadeT = (explosionProgress - 0.1) / 1.4;
+                this.bloomSprite.scale.setScalar(80 + fadeT * 50);
+                this.bloomSprite.material.opacity = (1 - fadeT) * 0.15;  // Very subtle
+            } else {
+                this.bloomSprite.visible = false;
+            }
+        }
+
+        // --- CAMERA SHAKE (subtle, cinematic) ---
+        const distanceFromSun = this.camera.position.length();
+        const baseShakeIntensity = 30 / Math.max(distanceFromSun, 10);  // Reduced from 100
+
+        // Time-based decay
+        let timeShakeMultiplier;
+        if (explosionProgress < 0.5) {
+            timeShakeMultiplier = 3 * (1 - explosionProgress * 2);
+        } else if (explosionProgress < 3) {
+            timeShakeMultiplier = 1.5 * (1 - (explosionProgress - 0.5) / 2.5);
+        } else {
+            timeShakeMultiplier = Math.max(0, 0.5 - (explosionProgress - 3) * 0.1);
+        }
+
+        this.cameraShakeIntensity = baseShakeIntensity * timeShakeMultiplier;
+
+        // Apply camera shake
+        if (this.cameraShakeIntensity > 0.01) {
+            const intensity = this.cameraShakeIntensity * Math.abs(this.timeDirection);
+            this.camera.position.x += (Math.random() - 0.5) * intensity;
+            this.camera.position.y += (Math.random() - 0.5) * intensity;
+            this.camera.position.z += (Math.random() - 0.5) * intensity;
+        }
+
+        // --- UPDATE BUTTON TEXT ---
+        if (normalizedProgress >= 1 && this.timeDirection === 1) {
+            const btn = document.getElementById('supernova-btn');
+            if (btn && btn.textContent !== 'REVERSING...') {
+                btn.textContent = 'RESET SYSTEM';
+            }
+        }
+    }
+
+    updatePlanetBlast(shockwaveRadius, explosionProgress, deltaTime) {
+        // MOMENTUM-BASED PHYSICS: Planets continue drifting after shockwave passes (Newton's First Law)
+        for (const name in this.planetBlastData) {
+            const mesh = this.bodies[name];
+            const data = this.planetBlastData[name];
+
+            if (!mesh || !data) continue;
+            if (data.isStar) continue;  // Skip sun
+
+            const planetDistance = data.originalPos.length();
+            const isHitByShockwave = shockwaveRadius > planetDistance;
+
+            // ============================================
+            // FORWARD MODE: Scientifically Accurate Physics
+            // Based on: Supernova shockwave at 10,000+ km/s
+            // Rocky planets: Vaporized by heat (surface becomes plasma)
+            // Gas giants: Atmosphere stripped away, core survives
+            // ============================================
+            if (this.timeDirection === 1) {
+                // --- SHOCKWAVE IMPACT: First contact ---
+                if (isHitByShockwave && !data.hasBeenHit) {
+                    data.hasBeenHit = true;
+                    data.hitTime = this.explosionTime;
+
+                    // Set velocity in blast direction
+                    data.velocity = data.direction.clone().multiplyScalar(data.blastSpeed);
+
+                    // === ROCKY PLANETS: HEATING PHASE ===
+                    // Scientific: Heat wave arrives first, planet glows white-hot
+                    if (data.isRocky || data.isDwarf) {
+                        data.isHeating = true;
+                        // First, planet glows intensely hot (lava/magma surface)
+                        mesh.material = new THREE.MeshStandardMaterial({
+                            map: this.heatGlowTexture,
+                            emissive: 0xff6600,
+                            emissiveIntensity: 2.0,
+                            roughness: 0.2,
+                            metalness: 0.1
+                        });
+                    }
+                    // === GAS GIANTS: START ATMOSPHERIC STRIPPING ===
+                    else if (data.isGasGiant) {
+                        data.isScorched = true;
+                        data.originalScaleValue = mesh.scale.x;
+                        // Scientific: Atmosphere begins to be blown away
+                        mesh.material = new THREE.MeshStandardMaterial({
+                            map: this.atmosphereStripTexture,
+                            emissive: 0xff4400,
+                            emissiveIntensity: 1.5,
+                            roughness: 0.4,
+                            metalness: 0.2
+                        });
+                        // Create initial stripping particles
+                        this.createStrippingEffect(mesh.position.clone(), name);
+                    }
+                }
+
+                // --- MOMENTUM: Apply velocity every frame ---
+                if (data.hasBeenHit) {
+                    const timeSinceHit = this.explosionTime - data.hitTime;
+                    const movement = data.velocity.clone().multiplyScalar(deltaTime);
+                    mesh.position.add(movement);
+
+                    // Record position for reversal
+                    data.positionHistory.push(mesh.position.clone());
+                    if (data.positionHistory.length > 2000) {
+                        data.positionHistory.shift();
+                    }
+
+                    // === ROCKY PLANETS: CINEMATIC VAPORIZATION SEQUENCE ===
+                    // Slower, more dramatic destruction that you can see clearly
+                    if ((data.isRocky || data.isDwarf) && !data.isVaporized) {
+                        // Phase 1: Planet glows hot (0-1.0s) - LONGER for visibility
+                        if (timeSinceHit < 1.0) {
+                            const glowT = timeSinceHit / 1.0;
+                            // Gradual increase in glow
+                            const glowIntensity = 0.5 + glowT * 2.5;
+                            mesh.material.emissiveIntensity = glowIntensity;
+                            // Color shifts to white-hot
+                            mesh.material.emissive.setRGB(1, 0.8 - glowT * 0.3, 0.5 - glowT * 0.3);
+                            // Slight swell from thermal expansion
+                            const swellFactor = 1 + glowT * 0.15;
+                            mesh.scale.copy(data.originalScale).multiplyScalar(swellFactor);
+                            // Start creating some wisps of vapor early
+                            if (Math.random() < 0.1 * glowT) {
+                                this.createSingleStrippingParticle(mesh.position.clone(), mesh.scale.x * 1.5);
+                            }
+                        }
+                        // Phase 2: Disintegration begins (1.0-2.0s)
+                        else if (timeSinceHit < 2.0) {
+                            const vaporT = (timeSinceHit - 1.0) / 1.0;
+                            mesh.material.opacity = 1 - vaporT * 0.8;
+                            mesh.material.transparent = true;
+                            mesh.material.emissiveIntensity = 3.0 - vaporT;
+                            // Planet breaks apart
+                            const breakFactor = 1.15 * (1 - vaporT * 0.3);
+                            mesh.scale.copy(data.originalScale).multiplyScalar(breakFactor);
+                            // More vapor as it disintegrates
+                            if (Math.random() < 0.4) {
+                                this.createSingleStrippingParticle(mesh.position.clone(), mesh.scale.x * 2);
+                            }
+                        }
+                        // Phase 3: Complete vaporization (2.0s+)
+                        else {
+                            mesh.visible = false;
+                            data.isVaporized = true;
+                            // Create beautiful plasma cloud where planet was
+                            this.createVaporizationEffect(mesh.position.clone(), name, data);
+                        }
+                    }
+
+                    // === GAS GIANTS: DRAMATIC ATMOSPHERE STRIPPING ===
+                    // Visible progressive loss of atmosphere - very cinematic
+                    if (data.isGasGiant && data.isScorched) {
+                        // More frequent stripping particles for dramatic effect
+                        if (Math.random() < 0.5) {
+                            this.createSingleStrippingParticle(mesh.position.clone(), mesh.scale.x * 2.5);
+                        }
+
+                        // Slower shrinking - more visible (down to 65% over 8 seconds)
+                        const stripProgress = Math.min(timeSinceHit / 8, 1);
+                        const newScale = data.originalScaleValue * (1 - stripProgress * 0.35);
+                        mesh.scale.setScalar(newScale);
+
+                        // Dramatic color shift - becomes darker and more red as atmosphere is lost
+                        const colorShift = Math.min(timeSinceHit / 5, 1);
+                        mesh.material.emissive.setRGB(
+                            0.8 - colorShift * 0.3,
+                            0.4 - colorShift * 0.2,
+                            0.2 - colorShift * 0.1
+                        );
+                        mesh.material.emissiveIntensity = Math.max(0.4, 1.2 - timeSinceHit * 0.1);
+
+                        // Tumbling from the impact
+                        mesh.rotation.x += data.tumbleSpeedX;
+                        mesh.rotation.y += data.tumbleSpeedY;
+                        mesh.rotation.z += data.tumbleSpeedZ;
+                    }
+
+                    // === UPDATE DEBRIS/PLASMA CLOUDS (beautiful type-specific animations) ===
+                    for (let i = data.debrisClouds.length - 1; i >= 0; i--) {
+                        const cloud = data.debrisClouds[i];
+                        const type = cloud.userData.type || 'default';
+
+                        // All particles follow planet movement
+                        cloud.position.add(movement);
+                        cloud.position.add(cloud.userData.spreadVelocity.clone().multiplyScalar(deltaTime));
+
+                        // Type-specific animations
+                        switch (type) {
+                            case 'core':
+                                // Pulsing plasma core that shrinks over time
+                                const pulse = 1 + Math.sin(timeSinceHit * 5 + cloud.userData.pulsePhase) * 0.15;
+                                const coreScale = cloud.userData.baseScale * pulse * Math.max(0.3, 1 - timeSinceHit * 0.1);
+                                cloud.scale.setScalar(coreScale);
+                                cloud.material.opacity = Math.max(0, cloud.userData.baseOpacity * (1 - timeSinceHit * 0.06));
+                                // Core glows brighter initially then cools
+                                if (cloud.material.color) {
+                                    const coolT = Math.min(timeSinceHit / 4, 1);
+                                    cloud.material.color.setRGB(1, 1 - coolT * 0.3, 1 - coolT * 0.5);
+                                }
+                                break;
+
+                            case 'rock':
+                                // Tumbling rock fragments
+                                cloud.userData.rotation += cloud.userData.rotationSpeed * deltaTime;
+                                const rockScale = cloud.userData.baseScale * (1 + timeSinceHit * 0.3);
+                                cloud.scale.setScalar(rockScale);
+                                cloud.material.opacity = Math.max(0, cloud.userData.baseOpacity * (1 - timeSinceHit * 0.05));
+                                // Rock edges glow then cool
+                                if (cloud.material.color) {
+                                    const glowT = Math.max(0, 1 - timeSinceHit * 0.15);
+                                    cloud.material.color.setRGB(0.4 + glowT * 0.6, 0.2 + glowT * 0.3, 0.1 + glowT * 0.2);
+                                }
+                                break;
+
+                            case 'streamer':
+                                // Elongating magma streamers
+                                const streamerAge = 1 + timeSinceHit * 1.5;
+                                cloud.scale.set(
+                                    cloud.userData.baseScale * streamerAge * 1.5,
+                                    cloud.userData.baseScale * 0.8,
+                                    1
+                                );
+                                cloud.material.opacity = Math.max(0, cloud.userData.baseOpacity * (1 - timeSinceHit * 0.07));
+                                break;
+
+                            case 'wisp':
+                                // Wavy plasma wisps
+                                const wave = Math.sin(timeSinceHit * 3 + cloud.userData.wavePhase) * 0.3;
+                                cloud.position.y += wave * deltaTime * 5;
+                                const wispScale = cloud.userData.baseScale * (1 + timeSinceHit * 0.5);
+                                cloud.scale.setScalar(wispScale);
+                                cloud.material.opacity = Math.max(0, cloud.userData.baseOpacity * (1 - timeSinceHit * 0.08));
+                                break;
+
+                            case 'ember':
+                                // Flickering ember particles
+                                const flicker = 0.5 + Math.sin(timeSinceHit * cloud.userData.flickerSpeed) * 0.5;
+                                cloud.material.opacity = Math.max(0, cloud.userData.baseOpacity * flicker * (1 - timeSinceHit * 0.1));
+                                const emberScale = cloud.userData.baseScale * (1 + timeSinceHit * 0.2);
+                                cloud.scale.setScalar(emberScale);
+                                break;
+
+                            default:
+                                // Default behavior for older debris types
+                                const scale = cloud.userData.baseScale * (1 + timeSinceHit * 2);
+                                cloud.scale.setScalar(scale);
+                                cloud.material.opacity = Math.max(0, cloud.userData.baseOpacity * (1 - timeSinceHit * 0.08));
+                                if (cloud.material.color) {
+                                    const coolT = Math.min(timeSinceHit / 5, 1);
+                                    cloud.material.color.setRGB(1, 0.8 - coolT * 0.3, 0.6 - coolT * 0.4);
+                                }
+                        }
+
+                        // Remove expired particles
+                        if (cloud.material.opacity <= 0.01) {
+                            this.scene.remove(cloud);
+                            cloud.material.dispose();
+                            const idx = this.debrisClouds.indexOf(cloud);
+                            if (idx > -1) this.debrisClouds.splice(idx, 1);
+                            data.debrisClouds.splice(i, 1);
+                        }
+                    }
+                }
+            }
+            // ============================================
+            // REVERSE MODE: Trace back through position history
+            // ============================================
+            else {
+                if (data.hasBeenHit && data.positionHistory.length > 1) {
+                    // Pop multiple positions for FAST reversal
+                    for (let i = 0; i < 8 && data.positionHistory.length > 1; i++) {
+                        data.positionHistory.pop();
+                    }
+                    const prevPos = data.positionHistory[data.positionHistory.length - 1];
+                    mesh.position.copy(prevPos);
+
+                    // Reverse debris clouds (fast shrink)
+                    for (const cloud of data.debrisClouds) {
+                        cloud.position.copy(prevPos);
+                        cloud.material.opacity = Math.min(0.9, cloud.material.opacity + 0.1);
+                        cloud.scale.multiplyScalar(0.9);
+                    }
+
+                    // Reverse tumbling
+                    mesh.rotation.x -= data.tumbleSpeedX;
+                    mesh.rotation.y -= data.tumbleSpeedY;
+                    mesh.rotation.z -= data.tumbleSpeedZ;
+
+                    // Reverse gas giant shrinking (fast restore)
+                    if (data.isGasGiant && data.originalScaleValue) {
+                        const currentScale = mesh.scale.x;
+                        const targetScale = data.originalScaleValue;
+                        mesh.scale.setScalar(currentScale + (targetScale - currentScale) * 0.2);
+                    }
+
+                    // Reverse rocky planet vaporization (make visible, restore glow)
+                    if ((data.isRocky || data.isDwarf) && data.isVaporized) {
+                        mesh.visible = true;
+                        mesh.material.opacity = Math.min(1, (mesh.material.opacity || 0) + 0.1);
+                    }
+                }
+
+                // Check if shockwave has retreated past this planet
+                if (!isHitByShockwave && data.hasBeenHit) {
+                    data.hasBeenHit = false;
+                    data.isHeating = false;
+                    data.velocity.set(0, 0, 0);
+                    mesh.position.copy(data.originalPos);
+                    mesh.rotation.copy(data.originalRotation);
+                    mesh.scale.copy(data.originalScale);
+                    data.positionHistory = [data.originalPos.clone()];
+
+                    // Restore rocky planets
+                    if (data.isVaporized) {
+                        mesh.visible = true;
+                        data.isVaporized = false;
+                        mesh.material = data.originalMaterial;
+
+                        // Remove all debris clouds
+                        for (const cloud of data.debrisClouds) {
+                            this.scene.remove(cloud);
+                            cloud.material.dispose();
+                            const idx = this.debrisClouds.indexOf(cloud);
+                            if (idx > -1) this.debrisClouds.splice(idx, 1);
+                        }
+                        data.debrisClouds = [];
+                    }
+
+                    // Restore gas giant texture and scale
+                    if (data.isScorched) {
+                        data.isScorched = false;
+                        mesh.material = data.originalMaterial;
+                        mesh.scale.copy(data.originalScale);
+                    }
+                }
+            }
+        }
+    }
+
+    createSingleStrippingParticle(position, planetRadius) {
+        // Create a single atmospheric particle being stripped from a gas giant
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+
+        const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+        grad.addColorStop(0, 'rgba(255, 200, 100, 0.9)');
+        grad.addColorStop(0.5, 'rgba(255, 150, 80, 0.5)');
+        grad.addColorStop(1, 'rgba(200, 100, 50, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 32, 32);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+
+        // Random position on planet surface
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.random() * Math.PI;
+        sprite.position.copy(position);
+        sprite.position.x += Math.sin(phi) * Math.cos(theta) * planetRadius;
+        sprite.position.y += Math.sin(phi) * Math.sin(theta) * planetRadius;
+        sprite.position.z += Math.cos(phi) * planetRadius;
+
+        sprite.scale.setScalar(1 + Math.random() * 2);
+
+        // Outward velocity (being blown away)
+        sprite.userData.velocity = sprite.position.clone().sub(position).normalize().multiplyScalar(20 + Math.random() * 30);
+
+        this.scene.add(sprite);
+        this.debrisClouds.push(sprite);
+
+        // Auto-fade and remove
+        const fadeParticle = () => {
+            if (!sprite.parent) return;
+            sprite.position.add(sprite.userData.velocity.clone().multiplyScalar(0.016));
+            sprite.userData.velocity.multiplyScalar(0.99);
+            sprite.scale.multiplyScalar(1.02);
+            sprite.material.opacity *= 0.97;
+            if (sprite.material.opacity > 0.01) {
+                requestAnimationFrame(fadeParticle);
+            } else {
+                this.scene.remove(sprite);
+                sprite.material.dispose();
+                const idx = this.debrisClouds.indexOf(sprite);
+                if (idx > -1) this.debrisClouds.splice(idx, 1);
+            }
+        };
+        requestAnimationFrame(fadeParticle);
+    }
+
+    createVaporizationEffect(position, planetName, data) {
+        // === BEAUTIFUL MULTI-LAYER VAPORIZATION EFFECT ===
+
+        // Planet-specific color palettes
+        const colorPalettes = {
+            'Earth': {
+                core: [0xffffff, 0xaaddff, 0x4488ff],      // Blue-white plasma core
+                rocks: [0x8B4513, 0x654321, 0x3d2817],     // Brown rock chunks
+                magma: [0xff6600, 0xff3300, 0xffaa00],     // Orange-red magma
+                plasma: [0x88ccff, 0xaaeeff, 0xffffff]     // Blue plasma trails
+            },
+            'Mars': {
+                core: [0xffaa66, 0xff6644, 0xff4422],      // Orange-red core
+                rocks: [0xcc4422, 0x993311, 0x662211],     // Red/rust rocks
+                magma: [0xff5500, 0xff3300, 0xff7700],     // Bright orange magma
+                plasma: [0xff8866, 0xffaa88, 0xffccaa]     // Orange plasma
+            },
+            'Venus': {
+                core: [0xffffff, 0xffffcc, 0xffee88],      // Yellow-white core
+                rocks: [0xddaa66, 0xcc9955, 0xaa7744],     // Tan/yellow rocks
+                magma: [0xffcc00, 0xffaa00, 0xff8800],     // Golden magma
+                plasma: [0xffee88, 0xffffaa, 0xffffff]     // Golden plasma
+            },
+            'Mercury': {
+                core: [0xffffff, 0xdddddd, 0xbbbbbb],      // Grey-white core
+                rocks: [0x888888, 0x666666, 0x444444],     // Dark grey rocks
+                magma: [0xffaa88, 0xff8866, 0xff6644],     // Hot grey-orange
+                plasma: [0xcccccc, 0xeeeeee, 0xffffff]     // Silver plasma
+            },
+            'Ceres': {
+                core: [0xaaaaaa, 0x888888, 0x666666],      // Dim grey core
+                rocks: [0x555555, 0x444444, 0x333333],     // Dark rocks
+                magma: [0xcc8866, 0xaa6644, 0x884422],     // Dull magma
+                plasma: [0x999999, 0xaaaaaa, 0xbbbbbb]     // Grey plasma
+            }
+        };
+        const palette = colorPalettes[planetName] || colorPalettes['Mercury'];
+
+        // 1. === CENTRAL PLASMA CORE (the bright molten heart) ===
+        const coreSprite = this.createPlasmaCoreSprite(position, palette.core[0]);
+        coreSprite.userData.type = 'core';
+        coreSprite.userData.baseScale = 4;
+        coreSprite.userData.spreadVelocity = new THREE.Vector3(0, 0, 0);
+        coreSprite.userData.baseOpacity = 1.0;
+        coreSprite.userData.pulsePhase = Math.random() * Math.PI * 2;
+        coreSprite.scale.setScalar(4);
+        data.debrisClouds.push(coreSprite);
+        this.debrisClouds.push(coreSprite);
+
+        // 2. === ROCK FRAGMENT RING (chunky debris flying outward) ===
+        const numRocks = 12 + Math.floor(Math.random() * 8);
+        for (let i = 0; i < numRocks; i++) {
+            const angle = (i / numRocks) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+            const elevation = (Math.random() - 0.5) * 1.5;
+            const speed = 15 + Math.random() * 25;
+
+            const rockSprite = this.createRockFragmentSprite(
+                position.clone(),
+                palette.rocks[Math.floor(Math.random() * palette.rocks.length)]
+            );
+
+            rockSprite.userData.type = 'rock';
+            rockSprite.userData.spreadVelocity = new THREE.Vector3(
+                Math.cos(angle) * speed,
+                elevation * speed * 0.5,
+                Math.sin(angle) * speed
+            );
+            rockSprite.userData.baseScale = 0.8 + Math.random() * 1.5;
+            rockSprite.userData.baseOpacity = 0.95;
+            rockSprite.userData.rotation = Math.random() * Math.PI * 2;
+            rockSprite.userData.rotationSpeed = (Math.random() - 0.5) * 5;
+            rockSprite.scale.setScalar(rockSprite.userData.baseScale);
+
+            data.debrisClouds.push(rockSprite);
+            this.debrisClouds.push(rockSprite);
+        }
+
+        // 3. === MAGMA STREAMERS (fiery trails) ===
+        const numStreamers = 8;
+        for (let i = 0; i < numStreamers; i++) {
+            const angle = (i / numStreamers) * Math.PI * 2;
+            const streamer = this.createMagmaStreamerSprite(
+                position.clone(),
+                palette.magma[Math.floor(Math.random() * palette.magma.length)]
+            );
+
+            streamer.userData.type = 'streamer';
+            streamer.userData.spreadVelocity = new THREE.Vector3(
+                Math.cos(angle) * 20,
+                (Math.random() - 0.5) * 10,
+                Math.sin(angle) * 20
+            );
+            streamer.userData.baseScale = 2 + Math.random() * 3;
+            streamer.userData.baseOpacity = 0.8;
+            streamer.userData.angle = angle;
+            streamer.scale.setScalar(streamer.userData.baseScale);
+
+            data.debrisClouds.push(streamer);
+            this.debrisClouds.push(streamer);
+        }
+
+        // 4. === PLASMA WISPS (glowing ethereal trails) ===
+        const numWisps = 15;
+        for (let i = 0; i < numWisps; i++) {
+            const wisp = this.createPlasmaWispSprite(
+                position.clone(),
+                palette.plasma[Math.floor(Math.random() * palette.plasma.length)]
+            );
+
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const speed = 8 + Math.random() * 15;
+
+            wisp.userData.type = 'wisp';
+            wisp.userData.spreadVelocity = new THREE.Vector3(
+                Math.sin(phi) * Math.cos(theta) * speed,
+                Math.cos(phi) * speed,
+                Math.sin(phi) * Math.sin(theta) * speed
+            );
+            wisp.userData.baseScale = 1 + Math.random() * 2;
+            wisp.userData.baseOpacity = 0.6 + Math.random() * 0.3;
+            wisp.userData.wavePhase = Math.random() * Math.PI * 2;
+            wisp.scale.setScalar(wisp.userData.baseScale);
+
+            data.debrisClouds.push(wisp);
+            this.debrisClouds.push(wisp);
+        }
+
+        // 5. === EMBER PARTICLES (tiny glowing dots) ===
+        const numEmbers = 30;
+        for (let i = 0; i < numEmbers; i++) {
+            const ember = this.createEmberSprite(position.clone());
+
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const speed = 5 + Math.random() * 30;
+
+            ember.userData.type = 'ember';
+            ember.userData.spreadVelocity = new THREE.Vector3(
+                Math.sin(phi) * Math.cos(theta) * speed,
+                Math.cos(phi) * speed,
+                Math.sin(phi) * Math.sin(theta) * speed
+            );
+            ember.userData.baseScale = 0.2 + Math.random() * 0.5;
+            ember.userData.baseOpacity = 0.8 + Math.random() * 0.2;
+            ember.userData.flickerSpeed = 5 + Math.random() * 10;
+            ember.scale.setScalar(ember.userData.baseScale);
+
+            data.debrisClouds.push(ember);
+            this.debrisClouds.push(ember);
+        }
+    }
+
+    createPlasmaCoreSprite(position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const cx = 64, cy = 64;
+
+        // Multi-layer plasma core with intense center
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 64);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.15, 'rgba(255, 255, 230, 0.95)');
+        grad.addColorStop(0.3, 'rgba(255, 240, 200, 0.8)');
+        grad.addColorStop(0.5, 'rgba(255, 200, 150, 0.5)');
+        grad.addColorStop(0.7, 'rgba(255, 150, 100, 0.25)');
+        grad.addColorStop(0.85, 'rgba(255, 100, 50, 0.1)');
+        grad.addColorStop(1, 'rgba(200, 50, 20, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 128, 128);
+
+        // Add pulsing energy rings
+        ctx.globalCompositeOperation = 'lighter';
+        for (let r = 20; r < 60; r += 12) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 - r * 0.004})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 1,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createRockFragmentSprite(position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const cx = 32, cy = 32;
+
+        // Irregular rock shape with glowing edges
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // Draw jagged rock shape
+        ctx.beginPath();
+        const points = 7 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < points; i++) {
+            const angle = (i / points) * Math.PI * 2;
+            const radius = 12 + Math.random() * 10;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+
+        // Rock body gradient
+        const rockGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 25);
+        rockGrad.addColorStop(0, '#555555');
+        rockGrad.addColorStop(0.5, '#333333');
+        rockGrad.addColorStop(1, '#111111');
+        ctx.fillStyle = rockGrad;
+        ctx.fill();
+
+        // Glowing hot edge
+        ctx.strokeStyle = 'rgba(255, 150, 50, 0.8)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.restore();
+
+        // Add heat glow around the rock
+        ctx.globalCompositeOperation = 'destination-over';
+        const glowGrad = ctx.createRadialGradient(cx, cy, 15, cx, cy, 32);
+        glowGrad.addColorStop(0, 'rgba(255, 100, 30, 0.6)');
+        glowGrad.addColorStop(0.5, 'rgba(255, 50, 10, 0.3)');
+        glowGrad.addColorStop(1, 'rgba(200, 30, 0, 0)');
+        ctx.fillStyle = glowGrad;
+        ctx.fillRect(0, 0, 64, 64);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.95,
+            blending: THREE.NormalBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createMagmaStreamerSprite(position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+
+        // Elongated flame/magma trail
+        const grad = ctx.createLinearGradient(0, 32, 128, 32);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.1, 'rgba(255, 255, 200, 0.9)');
+        grad.addColorStop(0.3, 'rgba(255, 200, 100, 0.7)');
+        grad.addColorStop(0.5, 'rgba(255, 150, 50, 0.5)');
+        grad.addColorStop(0.7, 'rgba(255, 100, 30, 0.3)');
+        grad.addColorStop(0.9, 'rgba(200, 50, 10, 0.1)');
+        grad.addColorStop(1, 'rgba(100, 20, 0, 0)');
+
+        // Draw flame shape
+        ctx.beginPath();
+        ctx.moveTo(0, 32);
+        ctx.bezierCurveTo(30, 10, 60, 20, 128, 32);
+        ctx.bezierCurveTo(60, 44, 30, 54, 0, 32);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Add bright core
+        ctx.globalCompositeOperation = 'lighter';
+        const coreGrad = ctx.createLinearGradient(0, 32, 60, 32);
+        coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+        coreGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.beginPath();
+        ctx.ellipse(20, 32, 20, 8, 0, 0, Math.PI * 2);
+        ctx.fillStyle = coreGrad;
+        ctx.fill();
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createPlasmaWispSprite(position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const cx = 32, cy = 32;
+
+        // Soft ethereal plasma wisp
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 32);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+        grad.addColorStop(0.2, 'rgba(255, 255, 240, 0.6)');
+        grad.addColorStop(0.5, 'rgba(255, 240, 220, 0.3)');
+        grad.addColorStop(0.8, 'rgba(255, 220, 180, 0.1)');
+        grad.addColorStop(1, 'rgba(255, 200, 150, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 64, 64);
+
+        // Add subtle swirl pattern
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let a = 0; a < Math.PI * 4; a += 0.2) {
+            const r = a * 3;
+            const x = cx + Math.cos(a) * r;
+            const y = cy + Math.sin(a) * r;
+            if (a === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createEmberSprite(position) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+        const cx = 8, cy = 8;
+
+        // Tiny bright ember dot
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 8);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.3, 'rgba(255, 255, 200, 0.8)');
+        grad.addColorStop(0.6, 'rgba(255, 200, 100, 0.4)');
+        grad.addColorStop(1, 'rgba(255, 150, 50, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 16, 16);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: 0xffaa44,
+            transparent: true,
+            opacity: 1,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createStrippingEffect(position, planetName) {
+        // === BEAUTIFUL MULTI-LAYER ATMOSPHERE STRIPPING FOR GAS GIANTS ===
+
+        // Planet-specific atmospheric layer colors (outer to inner)
+        const atmosphereLayers = {
+            'Jupiter': {
+                layers: [
+                    { color: 0xd4a574, name: 'ammonia clouds' },      // Tan outer cloud
+                    { color: 0xc4956a, name: 'ammonium hydrosulfide' }, // Darker tan
+                    { color: 0xcc8855, name: 'water clouds' },         // Orange-brown
+                    { color: 0xaa6633, name: 'deep atmosphere' },      // Deep brown
+                    { color: 0xff6644, name: 'hydrogen metallic' }     // Hot orange core glow
+                ],
+                bandColors: [0xe8c49a, 0xd4a574, 0xc4956a, 0xb8866a, 0xa87755]
+            },
+            'Saturn': {
+                layers: [
+                    { color: 0xead6a6, name: 'upper haze' },           // Pale gold
+                    { color: 0xdcc896, name: 'ammonia clouds' },       // Gold
+                    { color: 0xc4a66a, name: 'ammonium hydrosulfide' }, // Darker gold
+                    { color: 0xb8965a, name: 'water clouds' },         // Brown-gold
+                    { color: 0xffaa66, name: 'deep atmosphere' }       // Warm glow
+                ],
+                bandColors: [0xf0e0c0, 0xead6a6, 0xdcc896, 0xc4a66a, 0xb8965a]
+            },
+            'Uranus': {
+                layers: [
+                    { color: 0x9dd5d6, name: 'methane haze' },         // Pale cyan
+                    { color: 0x7bc8c9, name: 'upper clouds' },         // Cyan
+                    { color: 0x5aabac, name: 'hydrogen sulfide' },     // Teal
+                    { color: 0x3d8a8b, name: 'water clouds' },         // Dark teal
+                    { color: 0x66ddff, name: 'deep ice' }              // Ice blue glow
+                ],
+                bandColors: [0xaee0e1, 0x9dd5d6, 0x7bc8c9, 0x5aabac, 0x3d8a8b]
+            },
+            'Neptune': {
+                layers: [
+                    { color: 0x5588dd, name: 'methane haze' },         // Light blue
+                    { color: 0x4477cc, name: 'upper clouds' },         // Blue
+                    { color: 0x3366bb, name: 'hydrogen sulfide' },     // Deeper blue
+                    { color: 0x2255aa, name: 'water-ammonia' },        // Dark blue
+                    { color: 0x6699ff, name: 'diamond rain core' }     // Bright blue glow
+                ],
+                bandColors: [0x6699ee, 0x5588dd, 0x4477cc, 0x3366bb, 0x2255aa]
+            }
+        };
+
+        const planetAtmo = atmosphereLayers[planetName] || atmosphereLayers['Jupiter'];
+
+        // 1. === CONCENTRIC LAYER RINGS BEING STRIPPED ===
+        const numLayerRings = 5;
+        for (let layer = 0; layer < numLayerRings; layer++) {
+            const ring = this.createAtmosphereLayerRing(
+                position.clone(),
+                planetAtmo.layers[layer].color,
+                layer
+            );
+
+            // Spiral outward motion - each layer peels differently
+            const baseAngle = (layer / numLayerRings) * Math.PI * 2;
+            const speed = 8 + layer * 4; // Outer layers strip faster
+
+            ring.userData.type = 'layerRing';
+            ring.userData.layer = layer;
+            ring.userData.baseAngle = baseAngle;
+            ring.userData.spiralSpeed = 0.5 + layer * 0.2;
+            ring.userData.spreadVelocity = new THREE.Vector3(
+                Math.cos(baseAngle) * speed,
+                (Math.random() - 0.5) * 5,
+                Math.sin(baseAngle) * speed
+            );
+            ring.userData.baseScale = 3 + layer * 1.5;
+            ring.userData.baseOpacity = 0.7 - layer * 0.08;
+            ring.scale.setScalar(ring.userData.baseScale);
+
+            this.debrisClouds.push(ring);
+            this.animateLayerRing(ring);
+        }
+
+        // 2. === SWIRLING GAS WISPS (spiral patterns) ===
+        const numSwirls = 12;
+        for (let i = 0; i < numSwirls; i++) {
+            const layerIdx = Math.floor(Math.random() * planetAtmo.bandColors.length);
+            const swirl = this.createGasWispSprite(
+                position.clone(),
+                planetAtmo.bandColors[layerIdx]
+            );
+
+            const angle = (i / numSwirls) * Math.PI * 2;
+            const speed = 12 + Math.random() * 15;
+
+            swirl.userData.type = 'gasWisp';
+            swirl.userData.spiralAngle = angle;
+            swirl.userData.spiralSpeed = 1.5 + Math.random();
+            swirl.userData.spreadVelocity = new THREE.Vector3(
+                Math.cos(angle) * speed,
+                (Math.random() - 0.5) * 8,
+                Math.sin(angle) * speed
+            );
+            swirl.userData.baseScale = 2 + Math.random() * 3;
+            swirl.userData.baseOpacity = 0.6 + Math.random() * 0.3;
+            swirl.scale.setScalar(swirl.userData.baseScale);
+
+            this.debrisClouds.push(swirl);
+            this.animateGasWisp(swirl);
+        }
+
+        // 3. === STORM BAND FRAGMENTS (the iconic stripes breaking apart) ===
+        const numBandFrags = 8;
+        for (let i = 0; i < numBandFrags; i++) {
+            const bandColor = planetAtmo.bandColors[i % planetAtmo.bandColors.length];
+            const fragment = this.createStormBandFragment(position.clone(), bandColor);
+
+            const angle = (i / numBandFrags) * Math.PI * 2 + Math.random() * 0.5;
+            const speed = 10 + Math.random() * 12;
+
+            fragment.userData.type = 'bandFragment';
+            fragment.userData.spreadVelocity = new THREE.Vector3(
+                Math.cos(angle) * speed,
+                (Math.random() - 0.5) * 6,
+                Math.sin(angle) * speed
+            );
+            fragment.userData.baseScale = 1.5 + Math.random() * 2;
+            fragment.userData.baseOpacity = 0.75;
+            fragment.userData.tumble = (Math.random() - 0.5) * 3;
+            fragment.scale.setScalar(fragment.userData.baseScale);
+
+            this.debrisClouds.push(fragment);
+            this.animateBandFragment(fragment);
+        }
+
+        // 4. === HEATED GLOW PARTICLES (the atmosphere being super-heated) ===
+        const numGlowParticles = 20;
+        for (let i = 0; i < numGlowParticles; i++) {
+            const glow = this.createHeatGlowParticle(position.clone());
+
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const speed = 5 + Math.random() * 20;
+
+            glow.userData.type = 'heatGlow';
+            glow.userData.spreadVelocity = new THREE.Vector3(
+                Math.sin(phi) * Math.cos(theta) * speed,
+                Math.cos(phi) * speed,
+                Math.sin(phi) * Math.sin(theta) * speed
+            );
+            glow.userData.baseScale = 0.5 + Math.random() * 1.5;
+            glow.userData.baseOpacity = 0.5 + Math.random() * 0.4;
+            glow.userData.pulseSpeed = 3 + Math.random() * 5;
+            glow.scale.setScalar(glow.userData.baseScale);
+
+            this.debrisClouds.push(glow);
+            this.animateHeatGlow(glow);
+        }
+    }
+
+    createAtmosphereLayerRing(position, color, layerIndex) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const cx = 64, cy = 64;
+
+        // Create a broken/tearing ring representing an atmosphere layer
+        const innerRadius = 25 + layerIndex * 5;
+        const outerRadius = 35 + layerIndex * 8;
+
+        // Draw fragmented arc sections
+        ctx.globalCompositeOperation = 'source-over';
+        const numArcs = 3 + Math.floor(Math.random() * 3);
+        const arcGap = 0.3; // Gap between arcs
+
+        for (let i = 0; i < numArcs; i++) {
+            const startAngle = (i / numArcs) * Math.PI * 2 + Math.random() * 0.2;
+            const endAngle = startAngle + (Math.PI * 2 / numArcs) - arcGap;
+
+            // Gradient for depth
+            const arcGrad = ctx.createRadialGradient(cx, cy, innerRadius, cx, cy, outerRadius);
+            arcGrad.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+            arcGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
+            arcGrad.addColorStop(0.7, 'rgba(255, 255, 255, 0.4)');
+            arcGrad.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, outerRadius, startAngle, endAngle);
+            ctx.arc(cx, cy, innerRadius, endAngle, startAngle, true);
+            ctx.closePath();
+            ctx.fillStyle = arcGrad;
+            ctx.fill();
+
+            // Add wispy edges
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        // Add turbulent edge effect
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 30; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
+            const x = cx + Math.cos(angle) * dist;
+            const y = cy + Math.sin(angle) * dist;
+            const size = 2 + Math.random() * 4;
+
+            const spotGrad = ctx.createRadialGradient(x, y, 0, x, y, size);
+            spotGrad.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+            spotGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = spotGrad;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createGasWispSprite(position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 96;
+        canvas.height = 48;
+        const ctx = canvas.getContext('2d');
+
+        // Elongated swirling gas wisp
+        const grad = ctx.createLinearGradient(0, 24, 96, 24);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        grad.addColorStop(0.2, 'rgba(255, 255, 255, 0.5)');
+        grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+        grad.addColorStop(0.8, 'rgba(255, 255, 255, 0.5)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+        // Draw curved wisp shape
+        ctx.beginPath();
+        ctx.moveTo(0, 24);
+        ctx.bezierCurveTo(24, 8, 48, 40, 96, 24);
+        ctx.bezierCurveTo(48, 32, 24, 16, 0, 24);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Add swirl details
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(20, 24);
+        ctx.bezierCurveTo(35, 15, 50, 33, 75, 24);
+        ctx.stroke();
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createStormBandFragment(position, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 80;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+
+        // Horizontal storm band stripe fragment
+        const grad = ctx.createLinearGradient(0, 0, 0, 32);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+        grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.9)');
+        grad.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.9)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0.3)');
+
+        // Jagged/torn edges
+        ctx.beginPath();
+        ctx.moveTo(0, 8 + Math.random() * 5);
+        for (let x = 0; x <= 80; x += 10) {
+            ctx.lineTo(x, 5 + Math.random() * 8);
+        }
+        for (let x = 80; x >= 0; x -= 10) {
+            ctx.lineTo(x, 24 + Math.random() * 8);
+        }
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Add horizontal texture lines (storm bands)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+        for (let y = 10; y < 28; y += 6) {
+            ctx.beginPath();
+            ctx.moveTo(5, y + Math.random() * 2);
+            ctx.lineTo(75, y + Math.random() * 2);
+            ctx.stroke();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    createHeatGlowParticle(position) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        const cx = 16, cy = 16;
+
+        // Hot glowing particle
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 16);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.2, 'rgba(255, 220, 180, 0.8)');
+        grad.addColorStop(0.5, 'rgba(255, 150, 80, 0.4)');
+        grad.addColorStop(0.8, 'rgba(255, 100, 50, 0.15)');
+        grad.addColorStop(1, 'rgba(255, 50, 20, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 32, 32);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: 0xff8844,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+        return sprite;
+    }
+
+    // Animation functions for gas giant stripping effects
+    animateLayerRing(ring) {
+        const animate = () => {
+            if (!ring.parent) return;
+
+            // Spiral expansion
+            ring.userData.baseAngle += ring.userData.spiralSpeed * 0.016;
+            const spiralBoost = new THREE.Vector3(
+                Math.cos(ring.userData.baseAngle) * 2,
+                0,
+                Math.sin(ring.userData.baseAngle) * 2
+            );
+            ring.position.add(ring.userData.spreadVelocity.clone().multiplyScalar(0.016));
+            ring.position.add(spiralBoost.multiplyScalar(0.016));
+
+            // Expand and fade
+            ring.scale.multiplyScalar(1.008);
+            ring.material.opacity *= 0.992;
+
+            if (ring.material.opacity > 0.02) {
+                requestAnimationFrame(animate);
+            } else {
+                this.scene.remove(ring);
+                ring.material.dispose();
+                const idx = this.debrisClouds.indexOf(ring);
+                if (idx > -1) this.debrisClouds.splice(idx, 1);
+            }
+        };
+        requestAnimationFrame(animate);
+    }
+
+    animateGasWisp(wisp) {
+        const startTime = performance.now();
+        const animate = () => {
+            if (!wisp.parent) return;
+
+            const elapsed = (performance.now() - startTime) / 1000;
+
+            // Swirling motion
+            wisp.userData.spiralAngle += wisp.userData.spiralSpeed * 0.016;
+            const swirlOffset = new THREE.Vector3(
+                Math.cos(wisp.userData.spiralAngle) * 1.5,
+                Math.sin(elapsed * 2) * 0.5,
+                Math.sin(wisp.userData.spiralAngle) * 1.5
+            );
+
+            wisp.position.add(wisp.userData.spreadVelocity.clone().multiplyScalar(0.016));
+            wisp.position.add(swirlOffset.multiplyScalar(0.016));
+
+            // Stretch as it moves
+            const stretch = 1 + elapsed * 0.2;
+            wisp.scale.set(
+                wisp.userData.baseScale * stretch,
+                wisp.userData.baseScale,
+                1
+            );
+
+            wisp.material.opacity *= 0.994;
+
+            if (wisp.material.opacity > 0.02) {
+                requestAnimationFrame(animate);
+            } else {
+                this.scene.remove(wisp);
+                wisp.material.dispose();
+                const idx = this.debrisClouds.indexOf(wisp);
+                if (idx > -1) this.debrisClouds.splice(idx, 1);
+            }
+        };
+        requestAnimationFrame(animate);
+    }
+
+    animateBandFragment(fragment) {
+        const animate = () => {
+            if (!fragment.parent) return;
+
+            // Move and tumble
+            fragment.position.add(fragment.userData.spreadVelocity.clone().multiplyScalar(0.016));
+            fragment.userData.spreadVelocity.multiplyScalar(0.995);
+
+            // Expand slightly
+            fragment.scale.multiplyScalar(1.005);
+            fragment.material.opacity *= 0.993;
+
+            if (fragment.material.opacity > 0.02) {
+                requestAnimationFrame(animate);
+            } else {
+                this.scene.remove(fragment);
+                fragment.material.dispose();
+                const idx = this.debrisClouds.indexOf(fragment);
+                if (idx > -1) this.debrisClouds.splice(idx, 1);
+            }
+        };
+        requestAnimationFrame(animate);
+    }
+
+    animateHeatGlow(glow) {
+        const startTime = performance.now();
+        const animate = () => {
+            if (!glow.parent) return;
+
+            const elapsed = (performance.now() - startTime) / 1000;
+
+            // Float upward (heat rises)
+            glow.position.add(glow.userData.spreadVelocity.clone().multiplyScalar(0.016));
+            glow.position.y += 0.1; // Gentle rise
+
+            // Pulsing effect
+            const pulse = 1 + Math.sin(elapsed * glow.userData.pulseSpeed) * 0.2;
+            glow.scale.setScalar(glow.userData.baseScale * pulse);
+
+            glow.material.opacity *= 0.99;
+
+            if (glow.material.opacity > 0.02) {
+                requestAnimationFrame(animate);
+            } else {
+                this.scene.remove(glow);
+                glow.material.dispose();
+                const idx = this.debrisClouds.indexOf(glow);
+                if (idx > -1) this.debrisClouds.splice(idx, 1);
+            }
+        };
+        requestAnimationFrame(animate);
+    }
+
+    createDebrisSprite(position, color) {
+        // Create a glowing debris particle sprite
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+
+        // Soft glowing circle
+        const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)');
+        gradient.addColorStop(0.5, 'rgba(255, 200, 150, 0.4)');
+        gradient.addColorStop(1, 'rgba(255, 150, 100, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 64, 64);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: color,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.copy(position);
+        this.scene.add(sprite);
+
+        return sprite;
+    }
+
+    createDebrisCloud(position, planetName) {
+        // Create an expanding debris/vapor cloud sprite
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+
+        // Radial gradient for cloud appearance
+        const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+
+        // Color based on planet type
+        let color1, color2;
+        if (planetName === 'Earth') {
+            color1 = 'rgba(100, 150, 255, 0.9)';  // Blue-white
+            color2 = 'rgba(50, 100, 200, 0)';
+        } else if (planetName === 'Mars') {
+            color1 = 'rgba(255, 120, 80, 0.9)';   // Orange-red
+            color2 = 'rgba(200, 80, 50, 0)';
+        } else if (planetName === 'Venus') {
+            color1 = 'rgba(255, 220, 150, 0.9)';  // Yellow-white
+            color2 = 'rgba(200, 180, 100, 0)';
+        } else {
+            color1 = 'rgba(200, 200, 220, 0.9)';  // Grey-white (Mercury, others)
+            color2 = 'rgba(150, 150, 170, 0)';
+        }
+
+        gradient.addColorStop(0, color1);
+        gradient.addColorStop(0.3, color1);
+        gradient.addColorStop(0.6, color2.replace('0)', '0.3)'));
+        gradient.addColorStop(1, color2);
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 128, 128);
+
+        // Add noise/particles
+        for (let i = 0; i < 100; i++) {
+            const x = 32 + Math.random() * 64;
+            const y = 32 + Math.random() * 64;
+            const size = Math.random() * 3 + 1;
+            ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5})`;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+
+        const spriteMat = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.position.copy(position);
+        sprite.scale.setScalar(5);  // Initial scale based on planet size
+        this.scene.add(sprite);
+
+        return sprite;
+    }
+
+    updatePlanetaryDestruction() {
+        const rockyPlanets = ['Mercury', 'Venus', 'Earth', 'Mars'];
+        const gasGiants = ['Jupiter', 'Saturn', 'Uranus', 'Neptune'];
+        const dwarfPlanets = ['Ceres', 'Pluto', 'Haumea', 'Makemake', 'Eris'];
+
+        // Rocky planets: vaporize (hide + small particle burst)
+        for (const name of rockyPlanets) {
+            const mesh = this.bodies[name];
+            if (!mesh || !mesh.visible) continue;
+
+            const distance = mesh.position.length();
+
+            if (this.shockwaveRadius > distance) {
+                mesh.visible = false;
+                // Small particle burst (minimal for performance)
+                this.createExplosionParticles(mesh.position.clone(), 0xff6644, 30);
+            }
+        }
+
+        // Gas giants: burnt texture + push away
+        for (const name of gasGiants) {
+            const mesh = this.bodies[name];
+            if (!mesh) continue;
+
+            const distance = mesh.position.length();
+
+            if (this.shockwaveRadius > distance) {
+                if (!mesh.userData.isBurnt) {
+                    mesh.userData.isBurnt = true;
+                    mesh.userData.originalMaterial = mesh.material;
+                    mesh.material = this.burntMaterials[name];
+                }
+
+                // Push away from Sun
+                const direction = mesh.position.clone().normalize();
+                mesh.position.add(direction.multiplyScalar(8));
+            }
+        }
+
+        // Dwarf planets: vaporize
+        for (const name of dwarfPlanets) {
+            const mesh = this.bodies[name];
+            if (!mesh || !mesh.visible) continue;
+
+            const distance = mesh.position.length();
+
+            if (this.shockwaveRadius > distance) {
+                mesh.visible = false;
+                this.createExplosionParticles(mesh.position.clone(), 0x88aaff, 20);
+            }
+        }
+    }
+
+    completeReversal() {
+        // Fully restore everything when reversal completes
+        const btn = document.getElementById('supernova-btn');
+
+        // Show UI again
+        document.getElementById('app').classList.remove('explosion-active');
+
+        // Show orbit lines again
+        if (this.showOrbits) {
+            this.orbitLines.forEach(line => line.visible = true);
+        }
+
+        // Re-enable panning
+        this.controls.enablePan = true;
+
+        // Reset background
+        this.renderer.setClearColor(0x020205);
+
+        // Hide shockwaves
+        if (this.shockwave) {
+            this.shockwave.visible = false;
+            this.shockwave.scale.setScalar(0.01);
+            this.shockwave.material.opacity = 0.6;
+            this.shockwave.material.color.setHex(0xaaddff);
+            this.shockwave.rotation.set(0, 0, 0);
+        }
+        if (this.innerShockwave) {
+            this.innerShockwave.visible = false;
+            this.innerShockwave.scale.setScalar(0.01);
+            this.innerShockwave.material.opacity = 0.6;
+            this.innerShockwave.rotation.set(0, 0, 0);
+        }
+        if (this.shockwaveCore) {
+            this.shockwaveCore.visible = false;
+            this.shockwaveCore.scale.setScalar(0.01);
+            this.shockwaveCore.material.opacity = 0.9;
+        }
+
+        // Hide lens flare
+        if (this.lensFlare) {
+            this.lensFlare.visible = false;
+            this.lensFlare.material.opacity = 0;
+        }
+
+        // Hide bloom sprite
+        if (this.bloomSprite) {
+            this.bloomSprite.visible = false;
+            this.bloomSprite.material.opacity = 0;
+            this.bloomSprite.scale.setScalar(1);
+        }
+
+        // Clear particles
+        for (const particles of this.explosionParticles) {
+            this.scene.remove(particles);
+            particles.geometry.dispose();
+            particles.material.dispose();
+        }
+        this.explosionParticles = [];
+
+        // Clear debris clouds
+        if (this.debrisClouds) {
+            for (const cloud of this.debrisClouds) {
+                this.scene.remove(cloud);
+                cloud.material.dispose();
+                cloud.geometry.dispose();
+            }
+            this.debrisClouds = [];
+        }
+
+        // Reset Sun
+        const sunMesh = this.bodies.Sun;
+        if (sunMesh && this.originalSunColor) {
+            sunMesh.material = new THREE.MeshBasicMaterial({ map: this.originalSunColor });
+            sunMesh.scale.setScalar(1);
+        }
+
+        // Reset light
+        this.sunLight.intensity = this.originalSunLightIntensity;
+        this.sunLight.color.setHex(0xfffaf0);
+
+        // Reset glow colors
+        const glowColors = [0xffffee, 0xffcc44, 0xff8800, 0xff4400, 0xff2200];
+        this.glowMeshes.forEach((glow, i) => {
+            glow.material.color.setHex(glowColors[i]);
+            glow.material.opacity = 0.15 / (i * 0.7 + 1);
+        });
+
+        // Final snap to original positions using planetBlastData
+        for (const name in this.planetBlastData) {
+            const mesh = this.bodies[name];
+            const data = this.planetBlastData[name];
+            if (mesh && data) {
+                mesh.position.copy(data.originalPos);
+                mesh.visible = true;
+                mesh.scale.copy(data.originalScale);
+                mesh.rotation.copy(data.originalRotation);
+                // Restore original material (for scorched gas giants)
+                if (data.isScorched || data.isVaporized) {
+                    mesh.material = data.originalMaterial;
+                }
+                // Clean up planet-specific debris clouds
+                if (data.debrisClouds) {
+                    for (const cloud of data.debrisClouds) {
+                        this.scene.remove(cloud);
+                        if (cloud.material) cloud.material.dispose();
+                    }
+                    data.debrisClouds = [];
+                }
+            }
+        }
+
+        // Reset all state
+        this.isExploding = false;
+        this.timeDirection = 1;
+        this.explosionTime = 0;
+        this.planetBlastData = {};
+        this.flashTriggered = false;
+        this.cameraShakeIntensity = 0;
+
+        // Reset button
+        if (btn) {
+            btn.textContent = 'INITIATE SUPERNOVA';
+            btn.classList.remove('active');
+        }
+    }
+
+    updateCameraShake() {
+        // Intense shake at explosion start, decay over time
+        if (this.explosionPhase === 'explosion') {
+            if (this.explosionTime < 0.5) {
+                this.cameraShakeIntensity = 3 * (1 - this.explosionTime * 2);
+            } else if (this.explosionTime < 3) {
+                this.cameraShakeIntensity = 1.5 * (1 - (this.explosionTime - 0.5) / 2.5);
+            } else {
+                this.cameraShakeIntensity = Math.max(0, this.cameraShakeIntensity - 0.02);
+            }
+        }
+
+        if (this.cameraShakeIntensity > 0.01) {
+            const intensity = this.cameraShakeIntensity;
+            this.camera.position.x += (Math.random() - 0.5) * intensity;
+            this.camera.position.y += (Math.random() - 0.5) * intensity;
+            this.camera.position.z += (Math.random() - 0.5) * intensity;
+        }
+    }
+
+    createExplosionParticles(position, color, count = 30) {
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const velocities = [];
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = position.x;
+            positions[i * 3 + 1] = position.y;
+            positions[i * 3 + 2] = position.z;
+
+            velocities.push(new THREE.Vector3(
+                (Math.random() - 0.5) * 30,
+                (Math.random() - 0.5) * 30,
+                (Math.random() - 0.5) * 30
+            ));
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        const material = new THREE.PointsMaterial({
+            color: color,
+            size: 2,
+            transparent: true,
+            opacity: 1,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const points = new THREE.Points(geometry, material);
+        points.userData = { velocities, life: 1.0, decay: 0.025 };
+
+        this.scene.add(points);
+        this.explosionParticles.push(points);
+    }
+
+    updateExplosionParticles(deltaTime) {
+        for (let i = this.explosionParticles.length - 1; i >= 0; i--) {
+            const particles = this.explosionParticles[i];
+            const positions = particles.geometry.attributes.position.array;
+            const velocities = particles.userData.velocities;
+
+            for (let j = 0; j < velocities.length; j++) {
+                positions[j * 3] += velocities[j].x * deltaTime;
+                positions[j * 3 + 1] += velocities[j].y * deltaTime;
+                positions[j * 3 + 2] += velocities[j].z * deltaTime;
+            }
+            particles.geometry.attributes.position.needsUpdate = true;
+
+            particles.userData.life -= particles.userData.decay;
+            particles.material.opacity = particles.userData.life;
+
+            if (particles.userData.life <= 0) {
+                this.scene.remove(particles);
+                particles.geometry.dispose();
+                particles.material.dispose();
+                this.explosionParticles.splice(i, 1);
+            }
+        }
+    }
+
+    resetSolarSystem() {
+        // Emergency/backup reset - completeReversal is preferred
+        // Show UI elements again
+        document.getElementById('app').classList.remove('explosion-active');
+
+        // Show orbit lines again
+        if (this.showOrbits) {
+            this.orbitLines.forEach(line => line.visible = true);
+        }
+
+        // Re-enable all orbit controls
+        this.controls.enablePan = true;
+        this.controls.enableZoom = true;
+        this.controls.enableRotate = true;
+
+        // Reset background color
+        this.renderer.setClearColor(0x020205);
+
+        // Hide shockwaves (don't destroy - reuse)
+        if (this.shockwave) {
+            this.shockwave.visible = false;
+            this.shockwave.scale.setScalar(0.01);
+            this.shockwave.material.opacity = 0.8;
+            this.shockwave.rotation.set(0, 0, 0);
+        }
+        if (this.innerShockwave) {
+            this.innerShockwave.visible = false;
+            this.innerShockwave.scale.setScalar(0.01);
+            this.innerShockwave.material.opacity = 0.6;
+            this.innerShockwave.rotation.set(0, 0, 0);
+        }
+        if (this.shockwaveCore) {
+            this.shockwaveCore.visible = false;
+            this.shockwaveCore.scale.setScalar(0.01);
+            this.shockwaveCore.material.opacity = 0.9;
+        }
+
+        // Hide lens flare
+        if (this.lensFlare) {
+            this.lensFlare.visible = false;
+            this.lensFlare.material.opacity = 0;
+        }
+
+        // Hide bloom sprite
+        if (this.bloomSprite) {
+            this.bloomSprite.visible = false;
+            this.bloomSprite.material.opacity = 0;
+            this.bloomSprite.scale.setScalar(1);
+        }
+
+        // Remove explosion particles
+        for (const particles of this.explosionParticles) {
+            this.scene.remove(particles);
+            particles.geometry.dispose();
+            particles.material.dispose();
+        }
+        this.explosionParticles = [];
+
+        // Clear debris clouds
+        if (this.debrisClouds) {
+            for (const cloud of this.debrisClouds) {
+                this.scene.remove(cloud);
+                cloud.material.dispose();
+                cloud.geometry.dispose();
+            }
+            this.debrisClouds = [];
+        }
+
+        // Reset Sun
+        const sunMesh = this.bodies.Sun;
+        if (sunMesh && this.originalSunColor) {
+            sunMesh.material = new THREE.MeshBasicMaterial({ map: this.originalSunColor });
+            sunMesh.scale.setScalar(1);
+        }
+
+        // Reset light
+        this.sunLight.intensity = this.originalSunLightIntensity;
+        this.sunLight.color.setHex(0xfffaf0);
+
+        // Reset glow colors
+        const glowColors = [0xffffee, 0xffcc44, 0xff8800, 0xff4400, 0xff2200];
+        this.glowMeshes.forEach((glow, i) => {
+            glow.material.color.setHex(glowColors[i]);
+            glow.material.opacity = 0.15 / (i * 0.7 + 1);
+        });
+
+        // Restore all planets using planetBlastData
+        for (const name in this.planetBlastData) {
+            const mesh = this.bodies[name];
+            const data = this.planetBlastData[name];
+
+            if (mesh && data) {
+                mesh.position.copy(data.originalPos);
+                mesh.visible = true;
+                mesh.scale.copy(data.originalScale);
+                mesh.rotation.copy(data.originalRotation);
+
+                // Restore original material (for scorched or vaporized planets)
+                if (data.isScorched || data.isVaporized) {
+                    mesh.material = data.originalMaterial;
+                }
+                // Clean up planet-specific debris clouds
+                if (data.debrisClouds) {
+                    for (const cloud of data.debrisClouds) {
+                        this.scene.remove(cloud);
+                        if (cloud.material) cloud.material.dispose();
+                    }
+                    data.debrisClouds = [];
+                }
+            }
+        }
+
+        // Reset all state
+        this.isExploding = false;
+        this.timeDirection = 1;
+        this.cameraShakeIntensity = 0;
+        this.explosionTime = 0;
+        this.planetBlastData = {};
+        this.flashTriggered = false;
+    }
+
     animate() {
         requestAnimationFrame(() => this.animate());
 
         const delta = this.clock.getDelta();
         const elapsed = this.clock.getElapsedTime();
         const speed = this.speed; // Cache for loop
+
+        // If exploding (forward or reverse), run explosion update instead of normal orbit logic
+        if (this.isExploding) {
+            this.updateExplosion(delta);
+
+            // CRITICAL: Update moon systems to follow their planets during explosion
+            for (const planetName in this.moonSystems) {
+                const moonSystem = this.moonSystems[planetName];
+                const parentPlanet = this.bodies[planetName];
+                if (parentPlanet && moonSystem) {
+                    moonSystem.position.copy(parentPlanet.position);
+                }
+            }
+
+            // Still update controls and render
+            this.controls.update();
+            this.updateLabels();
+            this.renderer.render(this.scene, this.camera);
+            return;
+        }
 
         // Update planets with realistic orbital mechanics
         for (let i = 0, len = PLANETS.length; i < len; i++) {
@@ -2604,18 +5263,27 @@ class SolarSystem {
             this.kuiperBelt.rotation.y += 0.00002 * this.speed;
         }
 
-        // View transition
+        // View transition (smooth camera movement without flicker)
         if (this.viewTransition) {
             const transElapsed = this.clock.getElapsedTime() - this.viewTransitionStart;
             const duration = 1.5;
             let t = Math.min(transElapsed / duration, 1);
-            t = 1 - Math.pow(1 - t, 3);
+            // Smooth easing function
+            t = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
             this.camera.position.lerpVectors(this.viewStartPos, this.viewEndPos, t);
             this.controls.target.lerpVectors(this.viewStartTarget, this.viewEndTarget, t);
 
+            // Disable controls damping during transition to prevent flicker
+            this.controls.enableDamping = false;
+
             if (t >= 1) {
                 this.viewTransition = false;
+                // Snap to exact final position
+                this.camera.position.copy(this.viewEndPos);
+                this.controls.target.copy(this.viewEndTarget);
+                // Re-enable damping
+                this.controls.enableDamping = true;
             }
         }
 
